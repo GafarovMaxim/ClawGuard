@@ -1,0 +1,38 @@
+# Local User Configuration (contains private pinned IP)
+ClawGuard.json
+*.json.bak
+
+# Windows / Shortcuts
+*.lnk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Compiler & Build outputs (built via GitHub Actions or build.ps1)
+dist/
+build/
+bin/
+obj/
+*.exe
+*.tmp
+*.log
+*.swp
+
+# PS2EXE temporary artifacts
+PS2EXE-master/
+*.ps2exe.ps1
+
+# IDEs & Editors
+.vscode/
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Diagnostic & test files
+scratch/
+test_*.ps1
+capture_*.ps1

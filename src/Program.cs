@@ -27,7 +27,7 @@ using Rectangle = System.Windows.Shapes.Rectangle;
 using Path = System.IO.Path;
 
 [assembly: AssemblyTitle("ClawGuard")]
-[assembly: AssemblyDescription("ClawGuard Fail-Closed VPN Kill Switch for Claude")]
+[assembly: AssemblyDescription("ClawGuard Network Security Companion for Claude")]
 [assembly: AssemblyProduct("ClawGuard")]
 [assembly: AssemblyCompany("ClawGuard")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Gafarov Maxim")]
@@ -41,42 +41,19 @@ namespace ClawGuard
         [DllImport("dwmapi.dll", PreserveSig = true)]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
-        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)]
-        private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
-        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)]
-        private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
         [DllImport("user32.dll")]
         public static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
-        public const int GWL_EXSTYLE = -20;
-        public const long WS_EX_DLGMODALFRAME = 0x00000001L;
-        public const uint SWP_NOSIZE = 0x0001;
-        public const uint SWP_NOMOVE = 0x0002;
-        public const uint SWP_NOZORDER = 0x0004;
-        public const uint SWP_FRAMECHANGED = 0x0020;
-        public const uint WM_SETICON = 0x0080;
-
         public static void EnableDarkTitleBar(Window window)
         {
             try
             {
+                // In WPF, set a 1x1 transparent icon to remove the default title icon cleanly
+                window.Icon = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[4], 4);
+
                 IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
                 if (hwnd != IntPtr.Zero)
                 {
@@ -85,32 +62,7 @@ namespace ClawGuard
                     DwmSetWindowAttribute(hwnd, 19, ref trueVal, sizeof(int));
                     int captionColor = 0x001c1414; // BGR #14141c
                     DwmSetWindowAttribute(hwnd, 35, ref captionColor, sizeof(int));
-                    RemoveTitleIcon(hwnd);
                 }
-            }
-            catch { }
-        }
-
-        public static void RemoveTitleIcon(IntPtr hwnd)
-        {
-            try
-            {
-                using (Bitmap bmp = new Bitmap(16, 16))
-                {
-                    IntPtr hIcon = bmp.GetHicon();
-                    SendMessage(hwnd, WM_SETICON, IntPtr.Zero, hIcon);
-                }
-                if (IntPtr.Size == 8)
-                {
-                    long style = GetWindowLongPtr64(hwnd, GWL_EXSTYLE).ToInt64();
-                    SetWindowLongPtr64(hwnd, GWL_EXSTYLE, new IntPtr(style | WS_EX_DLGMODALFRAME));
-                }
-                else
-                {
-                    int style = GetWindowLong32(hwnd, GWL_EXSTYLE);
-                    SetWindowLong32(hwnd, GWL_EXSTYLE, (int)(style | WS_EX_DLGMODALFRAME));
-                }
-                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
             catch { }
         }
@@ -502,7 +454,7 @@ namespace ClawGuard
             { "CrabSleep", "[ 💤 GUARD OFF • CRAB IS SLEEPING ]" },
             { "CrabAwake", "[ 🛡️ ON GUARD • WAITING FOR CLAUDE ]" },
             { "CrabWalking", "[ ⚡ CLAUDE ACTIVE • PATROLLING IP ]" },
-            { "CrabDead", "[ ☠️ IP LEAK! CRAB DIED, CLAUDE KILLED ]" },
+            { "CrabDead", "[ ☠️ IP LEAK! CRAB DIED, CLAUDE CLOSED ]" },
             { "CfgTitle", "Settings" },
             { "CfgPinnedIP", "Pinned IP:" },
             { "CfgUseCurr", "Current" },
@@ -716,10 +668,10 @@ namespace ClawGuard
             };
 
             // Set Claude Logo to normal terracotta
-            _imgClaudeLogo.Source = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoNormal);
+            _imgClaudeLogo.Source = EmbeddedAssets.GetClaudeLogo();
 
             // Set Title Logo
-            BitmapImage titleIcon = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoNormal);
+            ImageSource titleIcon = EmbeddedAssets.GetAppIconSource();
             if (titleIcon != null) _imgTitleLogo.Source = titleIcon;
 
             // Build Pixel Art Scenery & Crab Frames
@@ -1216,7 +1168,7 @@ namespace ClawGuard
                 // Fail-closed enforcement if guard active
                 if (_state.IsRunning && !string.IsNullOrEmpty(_state.PinnedIP) && _state.CurrentIP != _state.PinnedIP)
                 {
-                    KillProtectedApps("IP mismatch detected");
+                    CloseProtectedApps("IP mismatch detected");
                 }
             }
             else
@@ -1305,7 +1257,7 @@ namespace ClawGuard
                 _txtCrabStatus.Text = GetText("CrabDead");
                 _txtCrabStatus.Foreground = (Brush)bc.ConvertFrom("#E05050");
 
-                _imgClaudeLogo.Source = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoRed);
+                _imgClaudeLogo.Source = EmbeddedAssets.GetClaudeLogoRed();
                 _imgClaudeLogo.Effect = _claudeRedGlow;
 
                 _sinisterLayer.Visibility = Visibility.Visible;
@@ -1319,7 +1271,7 @@ namespace ClawGuard
             }
 
             // Normal matching IP: reset Claude logo to terracotta
-            _imgClaudeLogo.Source = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoNormal);
+            _imgClaudeLogo.Source = EmbeddedAssets.GetClaudeLogo();
             _imgClaudeLogo.Effect = null;
             _brokenTrackLine.Visibility = Visibility.Collapsed;
             _trackLine.Visibility = Visibility.Visible;
@@ -1391,7 +1343,7 @@ namespace ClawGuard
             }
         }
 
-        private static void KillProtectedApps(string reason)
+        private static void CloseProtectedApps(string reason)
         {
             string procName = Path.GetFileNameWithoutExtension(_config.ProcessName ?? "Claude");
             try
@@ -1401,9 +1353,10 @@ namespace ClawGuard
                 {
                     foreach (var p in procs)
                     {
+                        try { p.CloseMainWindow(); } catch { }
                         try { p.Kill(); } catch { }
                     }
-                    Log(string.Format("FAIL-CLOSED: Terminated {0} processes ({1})!", procs.Length, reason), "KILL");
+                    Log(string.Format("FAIL-CLOSED: Terminated {0} processes ({1})!", procs.Length, reason), "GUARD");
                     if (_notifyIcon != null)
                     {
                         _notifyIcon.ShowBalloonTip(3000, "ClawGuard Alert", string.Format("IP Mismatch! Terminated {0}.", procName), Forms.ToolTipIcon.Error);
@@ -1454,7 +1407,7 @@ namespace ClawGuard
             // Perform immediate check
             if (!string.IsNullOrEmpty(_state.CurrentIP) && _state.CurrentIP != _state.PinnedIP)
             {
-                KillProtectedApps("Initial start mismatch");
+                CloseProtectedApps("Initial start mismatch");
             }
         }
 

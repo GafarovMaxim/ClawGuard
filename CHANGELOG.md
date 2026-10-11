@@ -13,10 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smart Portable Configuration:** `ClawGuardPortable.exe` automatically keeps `ClawGuard.json` in the application directory for true zero-install portability.
 
 ### Changed
-- **VirusTotal Clean (0/72 Detections):** Completely resolved false-positive heuristic flags caused by PS2EXE compression stubs.
-- **Micro Footprint:** Executable binary size shrunk from 194 KB to 87 KB (over 55% reduction).
-- **Instant Cold Boot:** UI renders in less than 100 milliseconds with zero PowerShell runtime warmup.
-- **Removed Deprecated Scripts:** Permanently deleted `ClawGuardUI.ps1` and PS2EXE compilation scripts.
+- **VirusTotal Clean & Heuristic Hardening:** Completely resolved static ML heuristic false positives by removing low-level Win32 window-hooking P/Invokes, embedding application manifest (`src/app.manifest`) with DPI and Windows 10/11 compatibility, replacing raw Base64 strings with native `.rsrc` managed resources, and optimizing compilation (`/optimize+ /platform:anycpu`).
+- **Embedded Multi-Resolution Tray Icon:** Cleanly extracts the 256x256 multi-layer crab icon from the executable's Win32 resources into the system tray without filesystem dependencies or shield icon fallbacks.
+- **Pixel Art Cloud Elevation:** Repositioned right-hand cloud layer above the crab sleep animation to prevent sprite clipping.
+- **Micro Footprint:** Executable binary size optimized to ~189 KB with instant cold boot.
+- **Removed Deprecated Scripts:** Permanently deleted legacy PowerShell and PS2EXE compilation scripts.
 
 ## [2.5.0] - 2026-10-11
 

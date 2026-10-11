@@ -1574,19 +1574,7 @@ namespace ClawGuard
         private static void SetupTray()
         {
             _notifyIcon = new Forms.NotifyIcon();
-            try
-            {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ClawGuard.ico");
-                if (File.Exists(icoPath))
-                    _notifyIcon.Icon = new Icon(icoPath);
-                else
-                    _notifyIcon.Icon = SystemIcons.Shield;
-            }
-            catch
-            {
-                _notifyIcon.Icon = SystemIcons.Shield;
-            }
-
+            _notifyIcon.Icon = EmbeddedAssets.GetAppIcon();
             _notifyIcon.Text = "ClawGuard";
             _notifyIcon.Visible = true;
 

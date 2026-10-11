@@ -1,4 +1,4 @@
-﻿namespace ClawGuard
+namespace ClawGuard
 {
     public static class AppXaml
     {
@@ -253,7 +253,7 @@
                         <!-- 1. Day Sky Scenery Layer -->
                         <Canvas x:Name=""dayLayer"" Visibility=""Collapsed"">
                             <Canvas x:Name=""dayCloud1"" Canvas.Left=""14"" Canvas.Top=""8""/>
-                            <Canvas x:Name=""dayCloud2"" Canvas.Left=""190"" Canvas.Top=""12""/>
+                            <Canvas x:Name=""dayCloud2"" Canvas.Left=""190"" Canvas.Top=""3""/>
                             <Canvas x:Name=""sunHost"" Canvas.Left=""270"" Canvas.Top=""4""/>
                         </Canvas>
 
@@ -264,7 +264,7 @@
                             <TextBlock x:Name=""star3"" Text=""*"" FontFamily=""Consolas"" FontSize=""9""  Foreground=""#444470"" Canvas.Left=""135"" Canvas.Top=""5""/>
                             <TextBlock x:Name=""star4"" Text=""*"" FontFamily=""Consolas"" FontSize=""10"" Foreground=""#323255"" Canvas.Left=""305"" Canvas.Top=""10""/>
                             <Canvas x:Name=""nightCloud1"" Canvas.Left=""14"" Canvas.Top=""8""/>
-                            <Canvas x:Name=""nightCloud2"" Canvas.Left=""190"" Canvas.Top=""14""/>
+                            <Canvas x:Name=""nightCloud2"" Canvas.Left=""190"" Canvas.Top=""3""/>
                             <Canvas x:Name=""moonHost"" Canvas.Left=""270"" Canvas.Top=""4""/>
                         </Canvas>
 

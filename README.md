@@ -90,8 +90,8 @@ cd ClawGuard
 # 1-click batch build:
 build.bat
 
-# Or using PowerShell (with release .zip packaging):
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version "2.5.1.0"
+# Or with release .zip packaging:
+build.bat pack
 ```
 
 The compiled binaries will be output to `.\dist\`:

@@ -18,10 +18,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build ClawGuard Binaries & Packages
-        shell: powershell
+        shell: cmd
         run: |
-          $ver = if ($env:GITHUB_REF -match 'refs/tags/v(.+)') { $Matches[1] } else { '2.5.1' }
-          .\build.ps1 -Version "$ver.0"
+          build.bat pack
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')

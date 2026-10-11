@@ -20,14 +20,14 @@ set REFS=PresentationCore.dll,PresentationFramework.dll,WindowsBase.dll,System.X
 echo [1/2] Compiling ClawGuard.exe...
 "%FRAMEWORK%\csc.exe" /nologo /target:winexe /win32icon:ClawGuard.ico /lib:"%FRAMEWORK%\WPF" /out:dist\ClawGuard.exe /r:%REFS% src\Program.cs
 if %ERRORLEVEL% neq 0 (
-    echo Compilation failed!
+    echo Compilation of ClawGuard.exe failed!
     exit /b %ERRORLEVEL%
 )
 
 echo [2/2] Compiling ClawGuardPortable.exe...
 "%FRAMEWORK%\csc.exe" /nologo /target:winexe /win32icon:ClawGuard.ico /lib:"%FRAMEWORK%\WPF" /out:dist\ClawGuardPortable.exe /r:%REFS% src\Program.cs
 if %ERRORLEVEL% neq 0 (
-    echo Compilation failed!
+    echo Compilation of ClawGuardPortable.exe failed!
     exit /b %ERRORLEVEL%
 )
 
@@ -35,4 +35,20 @@ copy /y dist\ClawGuard.exe ClawGuard.exe >nul
 copy /y dist\ClawGuardPortable.exe ClawGuardPortable.exe >nul
 
 echo Build succeeded! Binaries generated in dist\ and root.
+
+if "%1"=="pack" goto do_pack
+if "%1"=="--pack" goto do_pack
+goto end
+
+:do_pack
+echo [Packaging Release Archives and SHA-256 Checksums...]
+set "VER=2.5.1"
+if not "%2"=="" set "VER=%2"
+powershell -NoProfile -Command ^
+    "Compress-Archive -Path dist\ClawGuard.exe, ClawGuard.ico, LICENSE -DestinationPath dist\ClawGuard-v%VER%-win-x64.zip -Force;" ^
+    "Compress-Archive -Path dist\ClawGuardPortable.exe, LICENSE -DestinationPath dist\ClawGuardPortable-v%VER%-win-x64.zip -Force;" ^
+    "$h = @(); Get-ChildItem dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object { $h += ((Get-FileHash $_.FullName).Hash.ToLower() + '  ' + $_.Name) }; $h | Out-File dist\SHA256SUMS.txt -Encoding utf8 -Force"
+echo Packaging completed in dist\
+
+:end
 endlocal

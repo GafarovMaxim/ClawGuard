@@ -18,14 +18,14 @@ if not exist dist mkdir dist
 set REFS=PresentationCore.dll,PresentationFramework.dll,WindowsBase.dll,System.Xaml.dll,System.Drawing.dll,System.Windows.Forms.dll,System.dll,System.Core.dll
 
 echo [1/2] Compiling ClawGuard.exe...
-"%FRAMEWORK%\csc.exe" /nologo /target:winexe /win32icon:ClawGuard.ico /lib:"%FRAMEWORK%\WPF" /out:dist\ClawGuard.exe /r:%REFS% src\Program.cs
+"%FRAMEWORK%\csc.exe" /nologo /target:winexe /win32icon:ClawGuard.ico /lib:"%FRAMEWORK%\WPF" /out:dist\ClawGuard.exe /r:%REFS% src\*.cs
 if %ERRORLEVEL% neq 0 (
     echo Compilation of ClawGuard.exe failed!
     exit /b %ERRORLEVEL%
 )
 
 echo [2/2] Compiling ClawGuardPortable.exe...
-"%FRAMEWORK%\csc.exe" /nologo /target:winexe /win32icon:ClawGuard.ico /lib:"%FRAMEWORK%\WPF" /out:dist\ClawGuardPortable.exe /r:%REFS% src\Program.cs
+"%FRAMEWORK%\csc.exe" /nologo /target:winexe /win32icon:ClawGuard.ico /lib:"%FRAMEWORK%\WPF" /out:dist\ClawGuardPortable.exe /r:%REFS% src\*.cs
 if %ERRORLEVEL% neq 0 (
     echo Compilation of ClawGuardPortable.exe failed!
     exit /b %ERRORLEVEL%

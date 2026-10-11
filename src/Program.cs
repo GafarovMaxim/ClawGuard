@@ -21,10 +21,8 @@ using System.Windows.Threading;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
-using ColorConverter = System.Windows.Media.ColorConverter;
 using Forms = System.Windows.Forms;
 using Image = System.Windows.Controls.Image;
-using Point = System.Windows.Point;
 using Rectangle = System.Windows.Shapes.Rectangle;
 using Path = System.IO.Path;
 
@@ -253,6 +251,10 @@ namespace ClawGuard
                     lock (_lock)
                     {
                         Success = false;
+                        IP = null;
+                        Country = "-";
+                        CountryCode = null;
+                        ISP = "-";
                         HasNewResult = true;
                         IsBusy = false;
                     }
@@ -262,8 +264,8 @@ namespace ClawGuard
 
         private static string MatchRegex(string text, string pattern)
         {
-            Match m = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
-            return m.Success && m.Groups.Count > 1 ? m.Groups[1].Value : null;
+            var m = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
+            return m.Success ? m.Groups[1].Value : null;
         }
     }
 
@@ -272,374 +274,109 @@ namespace ClawGuard
         public string PinnedIP { get; set; }
         public string ProcessName { get; set; }
         public int CheckInterval { get; set; }
-        public string Language { get; set; }
         public bool AutoExitWithApp { get; set; }
-        public bool TrayNotified { get; set; }
+        public bool NotifyOnTray { get; set; }
+        public string Language { get; set; }
 
         public AppConfig()
         {
             PinnedIP = null;
-            ProcessName = "Claude.exe";
+            ProcessName = "Claude";
             CheckInterval = 2;
-            Language = "RU";
             AutoExitWithApp = false;
-            TrayNotified = false;
+            NotifyOnTray = true;
+            Language = "RU";
         }
 
-        public static string GetConfigPath()
+        private static string ConfigPath
         {
-            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            string localConfig = Path.Combine(exeDir, "ClawGuard.json");
-            string exeName = Process.GetCurrentProcess().ProcessName;
-            if (exeName.IndexOf("Portable", StringComparison.OrdinalIgnoreCase) >= 0 || File.Exists(localConfig))
+            get
             {
-                return localConfig;
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string local = Path.Combine(baseDir, "ClawGuard.json");
+                if (File.Exists(local)) return local;
+                string appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClawGuard");
+                if (!Directory.Exists(appData)) Directory.CreateDirectory(appData);
+                return Path.Combine(appData, "ClawGuard.json");
             }
-            string appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClawGuard");
-            if (!Directory.Exists(appData)) Directory.CreateDirectory(appData);
-            return Path.Combine(appData, "ClawGuard.json");
         }
 
         public static AppConfig Load()
         {
-            string path = GetConfigPath();
-            var cfg = new AppConfig();
-            if (File.Exists(path))
+            try
             {
-                try
+                string p = ConfigPath;
+                if (File.Exists(p))
                 {
-                    string json = File.ReadAllText(path);
-                    cfg.PinnedIP = ExtractJsonString(json, "PinnedIP");
-                    string p = ExtractJsonString(json, "ProcessName");
-                    if (!string.IsNullOrEmpty(p)) cfg.ProcessName = p;
-                    string lang = ExtractJsonString(json, "Language");
+                    string json = File.ReadAllText(p, Encoding.UTF8);
+                    var cfg = new AppConfig();
+                    string pinned = Match(json, "\"PinnedIP\"\\s*:\\s*\"([^\"]*)\"");
+                    if (!string.IsNullOrEmpty(pinned)) cfg.PinnedIP = pinned;
+                    string proc = Match(json, "\"ProcessName\"\\s*:\\s*\"([^\"]*)\"");
+                    if (!string.IsNullOrEmpty(proc)) cfg.ProcessName = proc;
+                    string interval = Match(json, "\"CheckInterval\"\\s*:\\s*(\\d+)");
+                    int ival;
+                    if (int.TryParse(interval, out ival) && ival > 0) cfg.CheckInterval = ival;
+                    string autoExit = Match(json, "\"AutoExitWithApp\"\\s*:\\s*(true|false)");
+                    if (!string.IsNullOrEmpty(autoExit)) cfg.AutoExitWithApp = bool.Parse(autoExit);
+                    string notify = Match(json, "\"NotifyOnTray\"\\s*:\\s*(true|false)");
+                    if (!string.IsNullOrEmpty(notify)) cfg.NotifyOnTray = bool.Parse(notify);
+                    string lang = Match(json, "\"Language\"\\s*:\\s*\"([^\"]*)\"");
                     if (!string.IsNullOrEmpty(lang)) cfg.Language = lang;
-                    string ival = ExtractJsonNumber(json, "CheckInterval");
-                    int iv;
-                    if (!string.IsNullOrEmpty(ival) && int.TryParse(ival, out iv)) cfg.CheckInterval = iv;
-                    cfg.AutoExitWithApp = json.Contains("\"AutoExitWithApp\": true");
-                    cfg.TrayNotified = json.Contains("\"TrayNotified\": true");
+                    return cfg;
                 }
-                catch { }
             }
-            return cfg;
+            catch { }
+            return new AppConfig();
         }
 
         public void Save()
         {
             try
             {
-                string path = GetConfigPath();
+                string p = ConfigPath;
                 var sb = new StringBuilder();
                 sb.AppendLine("{");
-                sb.AppendLine(string.Format("    \"PinnedIP\": {0},", PinnedIP != null ? "\"" + PinnedIP + "\"" : "null"));
-                sb.AppendLine(string.Format("    \"ProcessName\": \"{0}\",", ProcessName));
-                sb.AppendLine(string.Format("    \"CheckInterval\": {0},", CheckInterval));
-                sb.AppendLine(string.Format("    \"Language\": \"{0}\",", Language));
-                sb.AppendLine(string.Format("    \"AutoExitWithApp\": {0},", AutoExitWithApp ? "true" : "false"));
-                sb.AppendLine(string.Format("    \"TrayNotified\": {0}", TrayNotified ? "true" : "false"));
+                sb.AppendLine(string.Format("  \"PinnedIP\": {0},", PinnedIP == null ? "null" : "\"" + PinnedIP + "\""));
+                sb.AppendLine(string.Format("  \"ProcessName\": \"{0}\",", ProcessName ?? "Claude"));
+                sb.AppendLine(string.Format("  \"CheckInterval\": {0},", CheckInterval));
+                sb.AppendLine(string.Format("  \"AutoExitWithApp\": {0},", AutoExitWithApp ? "true" : "false"));
+                sb.AppendLine(string.Format("  \"NotifyOnTray\": {0},", NotifyOnTray ? "true" : "false"));
+                sb.AppendLine(string.Format("  \"Language\": \"{0}\"", Language ?? "RU"));
                 sb.AppendLine("}");
-                File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+                File.WriteAllText(p, sb.ToString(), Encoding.UTF8);
             }
             catch { }
         }
 
-        private static string ExtractJsonString(string json, string key)
+        private static string Match(string text, string pattern)
         {
-            Match m = Regex.Match(json, "\"" + key + "\"\\s*:\\s*\"([^\"]+)\"");
-            return m.Success ? m.Groups[1].Value : null;
-        }
-
-        private static string ExtractJsonNumber(string json, string key)
-        {
-            Match m = Regex.Match(json, "\"" + key + "\"\\s*:\\s*([0-9]+)");
+            var m = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
             return m.Success ? m.Groups[1].Value : null;
         }
     }
 
-    public static class I18n
+    public class AppState
     {
-        private static readonly Dictionary<string, Dictionary<string, string>> Dictionaries = new Dictionary<string, Dictionary<string, string>>
-        {
-            {
-                "EN", new Dictionary<string, string>
-                {
-                    { "PublicIP", "PUBLIC IP" },
-                    { "Country", "COUNTRY" },
-                    { "ISP", "PROVIDER" },
-                    { "PinnedIP", "PINNED IP" },
-                    { "PinBtn", "Pin IP" },
-                    { "LaunchBtn", "Launch Claude" },
-                    { "StopGuard", "Stop Guard" },
-                    { "StartGuard", "Start Guard" },
-                    { "Protecting", "protecting" },
-                    { "GuardActive", "Guard active" },
-                    { "GuardStopped", "Guard stopped" },
-                    { "IpMismatch", "IP MISMATCH!" },
-                    { "ClaudeRunning", "Claude running" },
-                    { "ClaudeNotRunning", "Claude not running" },
-                    { "CrabWalking", "Tunnel secure • Guard active" },
-                    { "CrabAwake", "Ready • Standing guard" },
-                    { "CrabSleep", "Idle • Sleeping" },
-                    { "CrabDead", "THREAT DETECTED • Claude terminated" },
-                    { "NotSet", "not set" },
-                    { "ShortSafe", "SAFE" },
-                    { "ShortMismatch", "LEAK!" },
-                    { "ShortInactive", "IDLE" },
-                    { "TrayKillTitle", "ClawGuard — Kill Switch Triggered!" },
-                    { "TrayKillMsg", "IP changed to {0}! Claude terminated to prevent IP leaks." },
-                    { "TrayHideTitle", "ClawGuard is active" },
-                    { "TrayHideMsg", "App minimized to tray. Double-click or right-click to manage." },
-                    { "TrayShow", "Show ClawGuard" },
-                    { "TrayLaunch", "Launch Claude" },
-                    { "TrayPin", "Pin Current IP" },
-                    { "TrayQuit", "Quit" },
-                    { "MsgNoIP", "Could not detect current public IP yet." },
-                    { "CfgTitle", "Settings" },
-                    { "CfgPinnedIP", "Pinned IP:" },
-                    { "CfgProcess", "Target Process:" },
-                    { "CfgInterval", "Check Interval (s):" },
-                    { "CfgAutoExit", "Auto-close with Claude" },
-                    { "CfgResetTray", "Notify on minimize to tray" },
-                    { "CfgSave", "Save" },
-                    { "CfgCancel", "Cancel" },
-                    { "LogTitle", "Activity Log" },
-                    { "LogCopy", "Copy" },
-                    { "LogClear", "Clear" }
-                }
-            },
-            {
-                "RU", new Dictionary<string, string>
-                {
-                    { "PublicIP", "IP-АДРЕС" },
-                    { "Country", "СТРАНА" },
-                    { "ISP", "ПРОВАЙДЕР" },
-                    { "PinnedIP", "ЗАКРЕПЛЁННЫЙ IP" },
-                    { "PinBtn", "Закрепить" },
-                    { "LaunchBtn", "Запустить Claude" },
-                    { "StopGuard", "Остановить" },
-                    { "StartGuard", "Включить защиту" },
-                    { "Protecting", "защита активна" },
-                    { "GuardActive", "Свитчер активен" },
-                    { "GuardStopped", "Свитчер остановлен" },
-                    { "IpMismatch", "IP НЕ СОВПАДАЕТ!" },
-                    { "ClaudeRunning", "Claude запущен" },
-                    { "ClaudeNotRunning", "Claude не запущен" },
-                    { "CrabWalking", "Туннель защищён • Защита активна" },
-                    { "CrabAwake", "На страже • Готов к запуску" },
-                    { "CrabSleep", "Спит • Свитчер остановлен" },
-                    { "CrabDead", "УГРОЗА • Claude экстренно закрыт" },
-                    { "NotSet", "не задан" },
-                    { "ShortSafe", "НОРМА" },
-                    { "ShortMismatch", "УТЕЧКА!" },
-                    { "ShortInactive", "ПАУЗА" },
-                    { "TrayKillTitle", "ClawGuard — Сработал Kill Switch!" },
-                    { "TrayKillMsg", "IP сменился на {0}! Claude экстренно закрыт для защиты от утечки." },
-                    { "TrayHideTitle", "ClawGuard работает в фоне" },
-                    { "TrayHideMsg", "Приложение свёрнуто в трей. Двойной клик разворачивает окно." },
-                    { "TrayShow", "Открыть ClawGuard" },
-                    { "TrayLaunch", "Запустить Claude" },
-                    { "TrayPin", "Закрепить текущий IP" },
-                    { "TrayQuit", "Выход" },
-                    { "MsgNoIP", "Текущий публичный IP ещё не определён." },
-                    { "CfgTitle", "Настройки" },
-                    { "CfgPinnedIP", "Закреплённый IP:" },
-                    { "CfgProcess", "Защищаемый процесс:" },
-                    { "CfgInterval", "Интервал проверки (сек):" },
-                    { "CfgAutoExit", "Закрывать вместе с Claude" },
-                    { "CfgResetTray", "Уведомлять о сворачивании в трей" },
-                    { "CfgSave", "Сохранить" },
-                    { "CfgCancel", "Отмена" },
-                    { "LogTitle", "Журнал событий" },
-                    { "LogCopy", "Копировать" },
-                    { "LogClear", "Очистить" }
-                }
-            }
-        };
-
-        public static string T(string lang, string key)
-        {
-            if (string.IsNullOrEmpty(lang)) lang = "RU";
-            if (Dictionaries.ContainsKey(lang) && Dictionaries[lang].ContainsKey(key))
-                return Dictionaries[lang][key];
-            if (Dictionaries["EN"].ContainsKey(key))
-                return Dictionaries["EN"][key];
-            return key;
-        }
-    }
-
-    public static class PixelArt
-    {
-        private static Brush B(string hex)
-        {
-            return (Brush)new BrushConverter().ConvertFrom(hex);
-        }
-
-        public static void DrawPx(Canvas c, int x, int y, Brush brush, double scale)
-        {
-            var r = new Rectangle
-            {
-                Width = scale,
-                Height = scale,
-                Fill = brush
-            };
-            Canvas.SetLeft(r, x * scale);
-            Canvas.SetTop(r, y * scale);
-            c.Children.Add(r);
-        }
-
-        public static Canvas MakeSun(double scale)
-        {
-            var c = new Canvas { Width = 8 * scale, Height = 8 * scale, ClipToBounds = false };
-            Brush ray = B("#F6C845");
-            Brush core = B("#FFE660");
-
-            DrawPx(c, 3, 0, ray, scale); DrawPx(c, 4, 0, ray, scale);
-            DrawPx(c, 3, 7, ray, scale); DrawPx(c, 4, 7, ray, scale);
-            DrawPx(c, 0, 3, ray, scale); DrawPx(c, 0, 4, ray, scale);
-            DrawPx(c, 7, 3, ray, scale); DrawPx(c, 7, 4, ray, scale);
-            DrawPx(c, 1, 1, ray, scale); DrawPx(c, 6, 1, ray, scale);
-            DrawPx(c, 1, 6, ray, scale); DrawPx(c, 6, 6, ray, scale);
-            for (int y = 2; y <= 5; y++)
-            {
-                for (int x = 2; x <= 5; x++) DrawPx(c, x, y, core, scale);
-            }
-            DrawPx(c, 3, 1, core, scale); DrawPx(c, 4, 1, core, scale);
-            DrawPx(c, 3, 6, core, scale); DrawPx(c, 4, 6, core, scale);
-            DrawPx(c, 1, 3, core, scale); DrawPx(c, 1, 4, core, scale);
-            DrawPx(c, 6, 3, core, scale); DrawPx(c, 6, 4, core, scale);
-            return c;
-        }
-
-        public static Canvas MakeMoon(bool isBlood, double scale)
-        {
-            var c = new Canvas { Width = 9 * scale, Height = 9 * scale, ClipToBounds = false };
-            Brush hi = isBlood ? B("#E05050") : B("#F0F2FA");
-            Brush mid = isBlood ? B("#A83236") : B("#B4B8D0");
-            Brush dk = isBlood ? B("#5A1A1E") : B("#686C88");
-
-            for (int x = 4; x <= 8; x++) DrawPx(c, x, 0, hi, scale);
-            DrawPx(c, 2, 1, hi, scale); DrawPx(c, 3, 1, hi, scale); DrawPx(c, 4, 1, mid, scale); DrawPx(c, 8, 1, mid, scale);
-            DrawPx(c, 1, 2, hi, scale); DrawPx(c, 2, 2, hi, scale); DrawPx(c, 3, 2, mid, scale); DrawPx(c, 7, 2, dk, scale);
-            DrawPx(c, 0, 3, hi, scale); DrawPx(c, 1, 3, hi, scale); DrawPx(c, 2, 3, mid, scale);
-            DrawPx(c, 0, 4, hi, scale); DrawPx(c, 1, 4, hi, scale); DrawPx(c, 2, 4, mid, scale);
-            DrawPx(c, 0, 5, hi, scale); DrawPx(c, 1, 5, hi, scale); DrawPx(c, 2, 5, mid, scale);
-            DrawPx(c, 1, 6, hi, scale); DrawPx(c, 2, 6, hi, scale); DrawPx(c, 3, 6, mid, scale); DrawPx(c, 7, 6, dk, scale);
-            DrawPx(c, 2, 7, hi, scale); DrawPx(c, 3, 7, hi, scale); DrawPx(c, 4, 7, mid, scale); DrawPx(c, 8, 7, mid, scale);
-            for (int x = 4; x <= 8; x++) DrawPx(c, x, 8, hi, scale);
-            return c;
-        }
-
-        public static Canvas MakeCloud(string colHex, string hiHex, double scale)
-        {
-            var c = new Canvas { Width = 18 * scale, Height = 6 * scale, ClipToBounds = false };
-            Brush col = B(colHex);
-            Brush hi = B(hiHex);
-
-            for (int x = 4; x <= 10; x++) { DrawPx(c, x, 0, hi, scale); DrawPx(c, x, 1, col, scale); }
-            for (int x = 2; x <= 14; x++) { DrawPx(c, x, 2, hi, scale); DrawPx(c, x, 3, col, scale); }
-            for (int x = 0; x <= 17; x++) { DrawPx(c, x, 4, col, scale); DrawPx(c, x, 5, col, scale); }
-            return c;
-        }
-
-        public static Canvas MakeCrabFrame(string state, double scale)
-        {
-            var c = new Canvas { Width = 14 * scale, Height = 11 * scale, ClipToBounds = false };
-            Brush b = state == "Dead" ? B("#E05050") : B("#D97757");
-            Brush cEyeCutout = B("#0f0f16");
-            Brush cWhite = Brushes.White;
-
-            int yBob = state == "AwakeB" ? 1 : 0;
-
-            // Horns / Pincers
-            int[] hornX = new int[] { 2, 3, 10, 11 };
-            if (state == "AwakeLeft") hornX = new int[] { 1, 2, 9, 10 };
-            if (state == "AwakeRight") hornX = new int[] { 3, 4, 11, 12 };
-            foreach (int x in hornX)
-            {
-                DrawPx(c, x, 0 + yBob, b, scale);
-                DrawPx(c, x, 1 + yBob, b, scale);
-            }
-
-            // Head top
-            for (int x = 2; x <= 11; x++) DrawPx(c, x, 2 + yBob, b, scale);
-
-            // Main body
-            for (int y = 3; y <= 6; y++)
-            {
-                for (int x = 0; x <= 13; x++) DrawPx(c, x, y + yBob, b, scale);
-            }
-
-            // Body bottom
-            for (int x = 2; x <= 11; x++) DrawPx(c, x, 7 + yBob, b, scale);
-
-            // Eyes
-            if (state == "Dead")
-            {
-                DrawPx(c, 3, 3, cWhite, scale); DrawPx(c, 4, 4, cWhite, scale);
-                DrawPx(c, 4, 3, cEyeCutout, scale); DrawPx(c, 3, 4, cEyeCutout, scale);
-                DrawPx(c, 9, 3, cWhite, scale); DrawPx(c, 10, 4, cWhite, scale);
-                DrawPx(c, 10, 3, cEyeCutout, scale); DrawPx(c, 9, 4, cEyeCutout, scale);
-            }
-            else if (state == "Sleep")
-            {
-                DrawPx(c, 3, 4, cEyeCutout, scale); DrawPx(c, 4, 4, cEyeCutout, scale);
-                DrawPx(c, 9, 4, cEyeCutout, scale); DrawPx(c, 10, 4, cEyeCutout, scale);
-            }
-            else if (state == "AwakeLeft")
-            {
-                DrawPx(c, 2, 3 + yBob, cEyeCutout, scale); DrawPx(c, 3, 3 + yBob, cEyeCutout, scale);
-                DrawPx(c, 2, 4 + yBob, cEyeCutout, scale); DrawPx(c, 3, 4 + yBob, cEyeCutout, scale);
-                DrawPx(c, 8, 3 + yBob, cEyeCutout, scale); DrawPx(c, 9, 3 + yBob, cEyeCutout, scale);
-                DrawPx(c, 8, 4 + yBob, cEyeCutout, scale); DrawPx(c, 9, 4 + yBob, cEyeCutout, scale);
-            }
-            else if (state == "AwakeRight")
-            {
-                DrawPx(c, 4, 3 + yBob, cEyeCutout, scale); DrawPx(c, 5, 3 + yBob, cEyeCutout, scale);
-                DrawPx(c, 4, 4 + yBob, cEyeCutout, scale); DrawPx(c, 5, 4 + yBob, cEyeCutout, scale);
-                DrawPx(c, 10, 3 + yBob, cEyeCutout, scale); DrawPx(c, 11, 3 + yBob, cEyeCutout, scale);
-                DrawPx(c, 10, 4 + yBob, cEyeCutout, scale); DrawPx(c, 11, 4 + yBob, cEyeCutout, scale);
-            }
-            else
-            {
-                DrawPx(c, 3, 3 + yBob, cEyeCutout, scale); DrawPx(c, 4, 3 + yBob, cEyeCutout, scale);
-                DrawPx(c, 3, 4 + yBob, cEyeCutout, scale); DrawPx(c, 4, 4 + yBob, cEyeCutout, scale);
-                DrawPx(c, 9, 3 + yBob, cEyeCutout, scale); DrawPx(c, 10, 3 + yBob, cEyeCutout, scale);
-                DrawPx(c, 9, 4 + yBob, cEyeCutout, scale); DrawPx(c, 10, 4 + yBob, cEyeCutout, scale);
-            }
-
-            // Legs
-            int[] legCols;
-            switch (state)
-            {
-                case "Walk1": legCols = new int[] { 0, 1, 4, 5, 8, 9, 12, 13 }; break;
-                case "Walk2": legCols = new int[] { 1, 2, 4, 5, 8, 9, 11, 12 }; break;
-                case "Walk3": legCols = new int[] { 1, 2, 5, 6, 7, 8, 11, 12 }; break;
-                case "Walk4": legCols = new int[] { 1, 2, 4, 5, 8, 9, 11, 12 }; break;
-                default: legCols = new int[] { 1, 2, 4, 5, 8, 9, 11, 12 }; break;
-            }
-            foreach (int x in legCols)
-            {
-                DrawPx(c, x, 8 + yBob, b, scale);
-                DrawPx(c, x, 9 + yBob, b, scale);
-            }
-
-            return c;
-        }
+        public string CurrentIP;
+        public string CountryCode;
+        public string Country;
+        public string ISP;
+        public string PinnedIP;
+        public bool IsRunning;
+        public Process GuardProc;
     }
 
     public class Program
     {
-        private static Mutex _appMutex;
-        private static Forms.NotifyIcon _notifyIcon;
+        private static Mutex _singleInstanceMutex;
         private static Window _window;
         private static AppConfig _config;
-
+        private static AppState _state = new AppState();
+        private static Forms.NotifyIcon _notifyIcon;
+        private static bool _quitting = false;
         private static bool _isClaudeRunning = false;
-        private static bool _hasSeenClaude = false;
-        private static int _claudeClosedTicks = 0;
         private static string _currentCrabMode = "Sleep";
-
         private static int _walkLegTimer = 0;
         private static int _walkPhase = 0;
         private static int _awakeBobTimer = 0;
@@ -648,55 +385,200 @@ namespace ClawGuard
         private static double _zzzOffset = 0.0;
         private static double _zzzDir = 1.0;
         private static int _tickCount = 0;
+        private static string _currentDrawerMode = null;
 
-        private static Dictionary<string, Canvas> _crabFrames = new Dictionary<string, Canvas>();
+        // UI Element References
+        private static Image _imgTitleLogo;
+        private static TextBlock _txtAppTitle;
+        private static Button _btnConfig;
+        private static Button _btnLog;
+        private static Button _btnLang;
+        private static TextBlock _txtLangBtn;
+        private static System.Windows.Shapes.Ellipse _statusDot;
+        private static TextBlock _txtStatusShort;
 
-        // Controls
-        private static Canvas _crabHost;
-        private static Line _trackLine;
-        private static Line _brokenTrackLine;
-        private static TextBlock _txtZzz;
-        private static Grid _dayLayer;
-        private static Grid _nightLayer;
-        private static Grid _sinisterLayer;
-
-        private static TextBlock _lblPublicIP, _txtIP;
-        private static TextBlock _lblCountry, _txtCountry;
-        private static TextBlock _lblISP, _txtISP;
-        private static TextBlock _lblPinnedIP, _txtPinnedIP;
-        private static TextBlock _txtGuardDot, _txtGuardStatus, _txtProtecting;
-        private static TextBlock _txtCrabStatus, _txtStatusShort;
-        private static Ellipse _statusDot;
+        private static TextBlock _lblPublicIP;
+        private static TextBlock _txtIP;
+        private static TextBlock _lblCountry;
         private static Border _bdFlag;
         private static Image _imgFlag;
-        private static Button _btnPin, _btnLaunch, _btnToggleGuard;
-        private static Button _btnConfig, _btnLog, _btnLang;
-        private static TextBlock _txtLangBtn;
-        private static Border _drawerPanel;
-        private static TextBlock _txtDrawerTitle;
-        private static StackPanel _viewConfig;
-        private static Grid _viewLog;
-        private static TextBox _inPinnedIP, _inProcess, _inInterval, _txtLogBody;
-        private static CheckBox _chkAutoExit, _chkTray;
-        private static Image _imgTitleLogo;
+        private static TextBlock _txtCountry;
+        private static TextBlock _lblISP;
+        private static TextBlock _txtISP;
 
+        private static TextBlock _lblPinnedIP;
+        private static TextBlock _txtPinnedIP;
+        private static Button _btnPin;
+
+        private static TextBlock _txtGuardDot;
+        private static TextBlock _txtGuardStatus;
+        private static TextBlock _txtProtecting;
+
+        private static Button _btnStart;
+        private static Button _btnStop;
+        private static Button _btnClaude;
+
+        private static Image _imgClaudeLogo;
+        private static Canvas _trackCanvas;
+        private static Canvas _dayLayer;
+        private static Canvas _dayCloud1;
+        private static Canvas _dayCloud2;
+        private static Canvas _sunHost;
+        private static Canvas _nightLayer;
+        private static TextBlock _star1;
+        private static TextBlock _star2;
+        private static TextBlock _star3;
+        private static TextBlock _star4;
+        private static Canvas _nightCloud1;
+        private static Canvas _nightCloud2;
+        private static Canvas _moonHost;
+        private static Canvas _sinisterLayer;
+        private static Canvas _stormCloud;
+        private static Canvas _bloodMoonHost;
+        private static Line _trackLine;
+        private static Line _brokenTrackLine;
+        private static Canvas _crabHost;
+        private static TextBlock _txtZzz;
+        private static TextBlock _txtCrabStatus;
+
+        private static Border _drawerOverlay;
+        private static Border _sideDrawer;
+        private static TextBlock _txtDrawerIcon;
+        private static TextBlock _txtDrawerTitle;
+        private static Button _btnDrawerClose;
+        private static StackPanel _viewConfig;
+        private static TextBox _inPinnedIP;
+        private static Button _btnCfgUseCurrent;
+        private static TextBox _inProcess;
+        private static TextBox _inInterval;
+        private static CheckBox _chkAutoExit;
+        private static CheckBox _chkTray;
+        private static Button _btnCfgCancel;
+        private static Button _btnCfgSave;
+        private static TextBlock _lblCfgPinnedIP;
+        private static TextBlock _lblCfgProcess;
+        private static TextBlock _lblCfgInterval;
+
+        private static Grid _viewLog;
+        private static TextBox _txtLogBody;
+        private static Button _btnCopyLog;
+        private static Button _btnClearLog;
+
+        private static Dictionary<string, Canvas> _crabFrames;
+        private static DropShadowEffect _claudeRedGlow;
+        private static DispatcherTimer _crabTimer;
+        private static DispatcherTimer _mainTimer;
         private static List<string> _logEntries = new List<string>();
 
-        [STAThread]
-        public static void Main()
+        // Verbatim Localization Dictionary
+        private static readonly Dictionary<string, string> StringsEN = new Dictionary<string, string>
         {
-            const string mutexName = @"Global\ClawGuard_SingleInstance_Mutex";
-            bool createdNew;
-            try
-            {
-                _appMutex = new Mutex(true, mutexName, out createdNew);
-            }
-            catch
-            {
-                createdNew = false;
-            }
+            { "AppTitle", "ClawGuard" },
+            { "PublicIP", "PUBLIC IP" },
+            { "Country", "COUNTRY" },
+            { "ISP", "ISP" },
+            { "PinnedIP", "PINNED IP" },
+            { "PinBtn", "📌  Pin Current" },
+            { "PinUpdate", "📌  Update PIN" },
+            { "NotSet", "not set" },
+            { "GuardActive", "Guard active" },
+            { "GuardStopped", "Guard stopped" },
+            { "StartBtn", "▶  Start Guard" },
+            { "StopBtn", "■  Stop Guard" },
+            { "LaunchClaude", "🚀  Launch Claude" },
+            { "Protecting", "Protecting: {0}" },
+            { "NoPIN", "No PIN" },
+            { "Offline", "Offline" },
+            { "IPOk", "IP OK" },
+            { "IPChanged", "IP changed!" },
+            { "NoConnection", "No connection" },
+            { "TrayTitle", "ClawGuard" },
+            { "TrayBg", "Running in background." },
+            { "TrayShow", "Show" },
+            { "TrayQuit", "Quit" },
+            { "MsgNoIP", "Cannot detect current IP. Check your connection." },
+            { "MsgPinFirst", "Pin an IP first." },
+            { "MsgMismatch", "IP does not match the pinned address." },
+            { "CrabSleep", "[ 💤 GUARD OFF • CRAB IS SLEEPING ]" },
+            { "CrabAwake", "[ 🛡️ ON GUARD • WAITING FOR CLAUDE ]" },
+            { "CrabWalking", "[ ⚡ CLAUDE ACTIVE • PATROLLING IP ]" },
+            { "CrabDead", "[ ☠️ IP LEAK! CRAB DIED, CLAUDE KILLED ]" },
+            { "CfgTitle", "Settings" },
+            { "CfgPinnedIP", "Pinned IP:" },
+            { "CfgUseCurr", "Current" },
+            { "CfgProcess", "Protected App:" },
+            { "CfgInterval", "Interval (sec):" },
+            { "CfgAutoExit", "Close ClawGuard when Claude exits" },
+            { "CfgResetTray", "Notify when minimized to tray" },
+            { "CfgSave", "Save" },
+            { "CfgCancel", "Cancel" },
+            { "LogTitle", "Activity Log" },
+            { "LogCopy", "Copy" },
+            { "LogClear", "Clear" }
+        };
 
-            if (!createdNew)
+        private static readonly Dictionary<string, string> StringsRU = new Dictionary<string, string>
+        {
+            { "AppTitle", "ClawGuard" },
+            { "PublicIP", "IP-АДРЕС" },
+            { "Country", "СТРАНА" },
+            { "ISP", "ПРОВАЙДЕР" },
+            { "PinnedIP", "ЗАКРЕПЛЁННЫЙ IP" },
+            { "PinBtn", "📌  Закрепить" },
+            { "PinUpdate", "📌  Обновить" },
+            { "NotSet", "не задан" },
+            { "GuardActive", "Свитчер активен" },
+            { "GuardStopped", "Свитчер остановлен" },
+            { "StartBtn", "▶  Запустить" },
+            { "StopBtn", "■  Остановить" },
+            { "LaunchClaude", "🚀  Запустить Claude" },
+            { "Protecting", "Защищает: {0}" },
+            { "NoPIN", "Нет IP" },
+            { "Offline", "Офлайн" },
+            { "IPOk", "OK" },
+            { "IPChanged", "Сменился!" },
+            { "NoConnection", "Нет соединения" },
+            { "TrayTitle", "ClawGuard" },
+            { "TrayBg", "Работает в фоновом режиме." },
+            { "TrayShow", "Показать" },
+            { "TrayQuit", "Выход" },
+            { "MsgNoIP", "Не удалось определить текущий IP. Проверьте подключение." },
+            { "MsgPinFirst", "Сначала закрепите IP-адрес." },
+            { "MsgMismatch", "IP не совпадает с закреплённым адресом." },
+            { "CrabSleep", "[ 💤 СВИТЧЕР ВЫКЛЮЧЕН • КРАБ СПИТ ]" },
+            { "CrabAwake", "[ 🛡️ НА СТРАЖЕ • ОЖИДАНИЕ CLAUDE ]" },
+            { "CrabWalking", "[ ⚡ CLAUDE АКТИВЕН • ПАТРУЛИРОВАНИЕ IP ]" },
+            { "CrabDead", "[ ☠️ УТЕЧКА IP! КРАБ ПОГИБ, CLAUDE ЗАКРЫТ ]" },
+            { "CfgTitle", "Настройки" },
+            { "CfgPinnedIP", "Закреплённый IP:" },
+            { "CfgUseCurr", "Текущий" },
+            { "CfgProcess", "Защищаемый процесс:" },
+            { "CfgInterval", "Интервал (сек):" },
+            { "CfgAutoExit", "Закрывать вместе с Claude" },
+            { "CfgResetTray", "Уведомлять о сворачивании в трей" },
+            { "CfgSave", "Сохранить" },
+            { "CfgCancel", "Отмена" },
+            { "LogTitle", "Журнал событий" },
+            { "LogCopy", "Копировать" },
+            { "LogClear", "Очистить" }
+        };
+
+        private static string GetText(string key)
+        {
+            bool isRu = string.Equals(_config.Language, "RU", StringComparison.OrdinalIgnoreCase);
+            var dict = isRu ? StringsRU : StringsEN;
+            string val;
+            if (dict.TryGetValue(key, out val)) return val;
+            if (StringsEN.TryGetValue(key, out val)) return val;
+            return key;
+        }
+
+        [STAThread]
+        public static void Main(string[] args)
+        {
+            bool isNewInstance;
+            _singleInstanceMutex = new Mutex(true, "ClawGuard_SingleInstance_Mutex", out isNewInstance);
+            if (!isNewInstance)
             {
                 try
                 {
@@ -716,6 +598,7 @@ namespace ClawGuard
             }
 
             _config = AppConfig.Load();
+            _state.PinnedIP = _config.PinnedIP;
 
             var app = new Application();
             BuildUI();
@@ -726,7 +609,7 @@ namespace ClawGuard
         {
             string line = string.Format("[{0:HH:mm:ss}] [{1}] {2}", DateTime.Now, type, msg);
             _logEntries.Add(line);
-            if (_logEntries.Count > 300) _logEntries.RemoveAt(0);
+            if (_logEntries.Count > 400) _logEntries.RemoveAt(0);
             if (_txtLogBody != null)
             {
                 _txtLogBody.Text = string.Join(Environment.NewLine, _logEntries.ToArray());
@@ -736,371 +619,484 @@ namespace ClawGuard
 
         private static void BuildUI()
         {
-            string xaml = @"<Window xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
-        xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
-        Title=""ClawGuard"" Height=""498"" Width=""390""
-        WindowStartupLocation=""CenterScreen"" ResizeMode=""CanMinimize""
-        Background=""#14141c"" Foreground=""White"" FontFamily=""Segoe UI"">
-    <Window.Resources>
-        <Style x:Key=""Card"" TargetType=""Border"">
-            <Setter Property=""Background"" Value=""#1a1a28""/>
-            <Setter Property=""CornerRadius"" Value=""10""/>
-            <Setter Property=""Padding"" Value=""14,10""/>
-            <Setter Property=""Margin"" Value=""0,0,0,8""/>
-            <Setter Property=""BorderBrush"" Value=""#292942""/>
-            <Setter Property=""BorderThickness"" Value=""1""/>
-        </Style>
-        <Style x:Key=""Lbl"" TargetType=""TextBlock"">
-            <Setter Property=""FontSize"" Value=""9.5""/>
-            <Setter Property=""Foreground"" Value=""#656592""/>
-            <Setter Property=""FontWeight"" Value=""SemiBold""/>
-            <Setter Property=""Margin"" Value=""0,0,0,2""/>
-        </Style>
-        <Style x:Key=""Val"" TargetType=""TextBlock"">
-            <Setter Property=""FontSize"" Value=""13.5""/>
-            <Setter Property=""Foreground"" Value=""#dedef8""/>
-            <Setter Property=""FontWeight"" Value=""SemiBold""/>
-        </Style>
-        <Style x:Key=""Btn"" TargetType=""Button"">
-            <Setter Property=""Height"" Value=""34""/>
-            <Setter Property=""FontSize"" Value=""12.5""/>
-            <Setter Property=""FontWeight"" Value=""SemiBold""/>
-            <Setter Property=""Foreground"" Value=""White""/>
-            <Setter Property=""BorderThickness"" Value=""0""/>
-            <Setter Property=""Cursor"" Value=""Hand""/>
-            <Setter Property=""Template"">
-                <Setter.Value>
-                    <ControlTemplate TargetType=""Button"">
-                        <Border x:Name=""bd"" Background=""{TemplateBinding Background}"" CornerRadius=""8"" Padding=""12,0"">
-                            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property=""IsMouseOver"" Value=""True""><Setter TargetName=""bd"" Property=""Opacity"" Value=""0.82""/></Trigger>
-                            <Trigger Property=""IsEnabled"" Value=""False""><Setter TargetName=""bd"" Property=""Opacity"" Value=""0.35""/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key=""HeaderBtn"" TargetType=""Button"">
-            <Setter Property=""Height"" Value=""23""/>
-            <Setter Property=""FontSize"" Value=""10.5""/>
-            <Setter Property=""FontWeight"" Value=""Bold""/>
-            <Setter Property=""Foreground"" Value=""#b0b0dc""/>
-            <Setter Property=""Background"" Value=""#252538""/>
-            <Setter Property=""Cursor"" Value=""Hand""/>
-            <Setter Property=""Margin"" Value=""0,0,6,0""/>
-            <Setter Property=""Template"">
-                <Setter.Value>
-                    <ControlTemplate TargetType=""Button"">
-                        <Border x:Name=""bdH"" Background=""{TemplateBinding Background}"" CornerRadius=""4"" Padding=""7,2"">
-                            <ContentPresenter HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property=""IsMouseOver"" Value=""True""><Setter TargetName=""bdH"" Property=""Background"" Value=""#3a3a58""/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-    <Grid>
-        <StackPanel x:Name=""mainPanel"" Margin=""14,2,14,10"">
-            <Grid Margin=""0,0,0,8"">
-                <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
-                <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"">
-                    <Border Width=""22"" Height=""17"" Margin=""0,0,8,0"" Background=""#281a17"" CornerRadius=""3"" VerticalAlignment=""Center"" BorderBrush=""#503028"" BorderThickness=""1"">
-                        <Image x:Name=""imgTitleLogo"" Width=""16"" Height=""13"" Stretch=""Uniform""/>
-                    </Border>
-                    <TextBlock Text=""ClawGuard"" FontSize=""18"" FontWeight=""Bold"" Foreground=""#D97757"" VerticalAlignment=""Center""/>
-                </StackPanel>
-                <StackPanel Grid.Column=""1"" Orientation=""Horizontal"" VerticalAlignment=""Center"">
-                    <Button x:Name=""btnConfig"" Style=""{StaticResource HeaderBtn}"" Content=""⚙ CFG""/>
-                    <Button x:Name=""btnLog"" Style=""{StaticResource HeaderBtn}"" Content=""📋 LOG""/>
-                    <Button x:Name=""btnLang"" Style=""{StaticResource HeaderBtn}"" Margin=""0,0,8,0"">
-                        <TextBlock x:Name=""txtLangBtn"" Text=""RU"" FontWeight=""Bold"" Foreground=""#e0af85""/>
-                    </Button>
-                    <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"">
-                        <Ellipse x:Name=""statusDot"" Width=""8"" Height=""8"" Fill=""#444466"" Margin=""0,0,4,0"" VerticalAlignment=""Center""/>
-                        <TextBlock x:Name=""txtStatusShort"" Text=""—"" FontSize=""11"" Foreground=""#606090"" VerticalAlignment=""Center""/>
-                    </StackPanel>
-                </StackPanel>
-            </Grid>
-
-            <Border Style=""{StaticResource Card}"">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width=""135""/><ColumnDefinition Width=""12""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column=""0"" VerticalAlignment=""Center"">
-                        <TextBlock x:Name=""lblPublicIP"" Style=""{StaticResource Lbl}"" Text=""IP-АДРЕС""/>
-                        <TextBlock x:Name=""txtIP"" Style=""{StaticResource Val}"" Text=""—""/>
-                    </StackPanel>
-                    <Rectangle Grid.Column=""1"" Width=""1"" Fill=""#282845"" HorizontalAlignment=""Center"" Margin=""0,2""/>
-                    <StackPanel Grid.Column=""2"" VerticalAlignment=""Center"" Margin=""2,0,0,0"">
-                        <TextBlock x:Name=""lblCountry"" Style=""{StaticResource Lbl}"" Text=""СТРАНА""/>
-                        <StackPanel Orientation=""Horizontal"" Margin=""0,1,0,5"" VerticalAlignment=""Center"">
-                            <Border x:Name=""bdFlag"" CornerRadius=""2"" Margin=""0,0,6,0"" Visibility=""Collapsed"" VerticalAlignment=""Center"" ClipToBounds=""True"" BorderBrush=""#353555"" BorderThickness=""1"">
-                                <Image x:Name=""imgFlag"" Width=""19"" Height=""13"" Stretch=""UniformToFill""/>
-                            </Border>
-                            <TextBlock x:Name=""txtCountry"" Style=""{StaticResource Val}"" Text=""—"" FontSize=""12.5"" VerticalAlignment=""Center"" TextTrimming=""CharacterEllipsis""/>
-                        </StackPanel>
-                        <TextBlock x:Name=""lblISP"" Style=""{StaticResource Lbl}"" Text=""ПРОВАЙДЕР""/>
-                        <TextBlock x:Name=""txtISP"" Foreground=""#9292bd"" FontSize=""11.5"" Text=""—"" TextTrimming=""CharacterEllipsis""/>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Border Style=""{StaticResource Card}"">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""8""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column=""0"" VerticalAlignment=""Center"">
-                        <TextBlock x:Name=""lblPinnedIP"" Style=""{StaticResource Lbl}"" Text=""ЗАКРЕПЛЁННЫЙ IP""/>
-                        <TextBlock x:Name=""txtPinnedIP"" Style=""{StaticResource Val}"" Text=""не задан"" Foreground=""#e05050"" FontSize=""12.5""/>
-                    </StackPanel>
-                    <Button x:Name=""btnPin"" Grid.Column=""2"" Style=""{StaticResource Btn}"" Background=""#5a3fbf"" Content=""Закрепить"" MinWidth=""112"" Padding=""12,0""/>
-                </Grid>
-            </Border>
-
-            <Border Style=""{StaticResource Card}"" Padding=""13,8"">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width=""Auto""/><ColumnDefinition Width=""*""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
-                    <TextBlock x:Name=""txtGuardDot"" Text=""○"" FontSize=""14"" Foreground=""#e05050"" VerticalAlignment=""Center"" Margin=""0,0,7,0""/>
-                    <TextBlock x:Name=""txtGuardStatus"" Grid.Column=""1"" Text=""Свитчер остановлен"" Foreground=""#8f8fba"" FontSize=""12"" VerticalAlignment=""Center""/>
-                    <TextBlock x:Name=""txtProtecting"" Grid.Column=""2"" Text="""" Foreground=""#505072"" FontSize=""10.5"" VerticalAlignment=""Center""/>
-                </Grid>
-            </Border>
-
-            <Border Background=""#09090e"" CornerRadius=""10"" BorderBrush=""#222238"" BorderThickness=""1"" Height=""110"" Margin=""0,0,0,10"" ClipToBounds=""True"">
-                <Grid>
-                    <Grid x:Name=""dayLayer"" Visibility=""Collapsed"">
-                        <Canvas x:Name=""sunHost"" Canvas.Left=""290"" Canvas.Top=""10""/>
-                        <Canvas x:Name=""dayCloud1"" Canvas.Left=""25"" Canvas.Top=""15""/>
-                        <Canvas x:Name=""dayCloud2"" Canvas.Left=""200"" Canvas.Top=""35""/>
-                    </Grid>
-                    <Grid x:Name=""nightLayer"" Visibility=""Visible"">
-                        <Canvas x:Name=""moonHost"" Canvas.Left=""275"" Canvas.Top=""12""/>
-                        <Canvas x:Name=""nightCloud1"" Canvas.Left=""20"" Canvas.Top=""20""/>
-                        <Canvas x:Name=""nightCloud2"" Canvas.Left=""180"" Canvas.Top=""36""/>
-                    </Grid>
-                    <Grid x:Name=""sinisterLayer"" Visibility=""Collapsed"">
-                        <Canvas x:Name=""bloodMoonHost"" Canvas.Left=""275"" Canvas.Top=""12""/>
-                        <Canvas x:Name=""stormCloud"" Canvas.Left=""60"" Canvas.Top=""22""/>
-                    </Grid>
-
-                    <Canvas>
-                        <Line x:Name=""trackLine"" X1=""-20"" Y1=""48"" X2=""380"" Y2=""48"" Stroke=""#3a3a58"" StrokeThickness=""2"" StrokeDashArray=""6,6""/>
-                        <Line x:Name=""brokenTrackLine"" X1=""-20"" Y1=""48"" X2=""380"" Y2=""48"" Stroke=""#e05050"" StrokeThickness=""2"" Visibility=""Collapsed""/>
-                        <Canvas x:Name=""crabHost"" Canvas.Left=""152"" Canvas.Top=""24""/>
-                        <TextBlock x:Name=""txtZzz"" Text=""Z z z"" FontSize=""11"" FontWeight=""Bold"" Foreground=""#6a6a94"" Canvas.Left=""194"" Canvas.Top=""18""/>
-                    </Canvas>
-                    <TextBlock x:Name=""txtCrabStatus"" Text=""Спит • Свитчер остановлен"" FontSize=""11"" Foreground=""#8888aa"" HorizontalAlignment=""Center"" VerticalAlignment=""Bottom"" Margin=""0,0,0,8""/>
-                </Grid>
-            </Border>
-
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""10""/><ColumnDefinition Width=""*""/></Grid.ColumnDefinitions>
-                <Button x:Name=""btnLaunch"" Grid.Column=""0"" Style=""{StaticResource Btn}"" Background=""#1d9766"" Content=""Запустить Claude"" IsEnabled=""False""/>
-                <Button x:Name=""btnToggleGuard"" Grid.Column=""2"" Style=""{StaticResource Btn}"" Background=""#3a3a55"" Content=""Включить защиту""/>
-            </Grid>
-        </StackPanel>
-
-        <!-- Slide-Out Drawer -->
-        <Border x:Name=""drawerPanel"" Background=""#141420"" BorderBrush=""#2d2d48"" BorderThickness=""1,0,0,0""
-                HorizontalAlignment=""Right"" Width=""320"" Margin=""0,0,-330,0"" Visibility=""Collapsed"">
-            <Grid Margin=""16,14"">
-                <Grid.RowDefinitions><RowDefinition Height=""Auto""/><RowDefinition Height=""*""/></Grid.RowDefinitions>
-                <Grid Grid.Row=""0"" Margin=""0,0,0,14"">
-                    <TextBlock x:Name=""txtDrawerTitle"" Text=""Настройки"" FontSize=""15"" FontWeight=""Bold"" Foreground=""#dedef8""/>
-                    <Button x:Name=""btnCloseDrawer"" Content=""✕"" HorizontalAlignment=""Right"" Width=""24"" Height=""24""
-                            Background=""Transparent"" Foreground=""#8585aa"" BorderThickness=""0"" Cursor=""Hand""/>
-                </Grid>
-                <Grid Grid.Row=""1"">
-                    <StackPanel x:Name=""viewConfig"" Visibility=""Visible"">
-                        <TextBlock Text=""Закреплённый IP:"" FontSize=""10"" Foreground=""#8585aa"" Margin=""0,0,0,3""/>
-                        <Grid Margin=""0,0,0,10"">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width=""*""/><ColumnDefinition Width=""6""/><ColumnDefinition Width=""Auto""/></Grid.ColumnDefinitions>
-                            <TextBox x:Name=""inPinnedIP"" Background=""#1c1c28"" Foreground=""White"" BorderBrush=""#353550"" Height=""28"" VerticalContentAlignment=""Center""/>
-                            <Button x:Name=""btnCfgUseCurrent"" Grid.Column=""2"" Content=""Текущий"" Height=""28"" Padding=""8,0"" Background=""#353554"" Foreground=""#e0e0ff"" BorderThickness=""0"" Cursor=""Hand""/>
-                        </Grid>
-                        <TextBlock Text=""Защищаемый процесс:"" FontSize=""10"" Foreground=""#8585aa"" Margin=""0,0,0,3""/>
-                        <TextBox x:Name=""inProcess"" Background=""#1c1c28"" Foreground=""White"" BorderBrush=""#353550"" Height=""28"" Margin=""0,0,0,10"" VerticalContentAlignment=""Center""/>
-                        <TextBlock Text=""Интервал проверки (сек):"" FontSize=""10"" Foreground=""#8585aa"" Margin=""0,0,0,3""/>
-                        <TextBox x:Name=""inInterval"" Background=""#1c1c28"" Foreground=""White"" BorderBrush=""#353550"" Height=""28"" Margin=""0,0,0,14"" VerticalContentAlignment=""Center""/>
-                        <CheckBox x:Name=""chkAutoExit"" Content=""Закрывать вместе с Claude"" Foreground=""#dedef8"" Margin=""0,0,0,10""/>
-                        <CheckBox x:Name=""chkTray"" Content=""Уведомлять о сворачивании в трей"" Foreground=""#dedef8"" Margin=""0,0,0,16""/>
-                        <StackPanel Orientation=""Horizontal"" HorizontalAlignment=""Right"">
-                            <Button x:Name=""btnCfgCancel"" Content=""Отмена"" Width=""80"" Height=""28"" Background=""#252538"" Foreground=""White"" BorderThickness=""0"" Margin=""0,0,8,0"" Cursor=""Hand""/>
-                            <Button x:Name=""btnCfgSave"" Content=""Сохранить"" Width=""95"" Height=""28"" Background=""#1d9766"" Foreground=""White"" BorderThickness=""0"" FontWeight=""SemiBold"" Cursor=""Hand""/>
-                        </StackPanel>
-                    </StackPanel>
-
-                    <Grid x:Name=""viewLog"" Visibility=""Collapsed"">
-                        <Grid.RowDefinitions><RowDefinition Height=""*""/><RowDefinition Height=""Auto""/></Grid.RowDefinitions>
-                        <TextBox x:Name=""txtLogBody"" Grid.Row=""0"" Background=""#101018"" Foreground=""#85e0a3"" BorderBrush=""#252538""
-                                 FontFamily=""Consolas"" FontSize=""10.5"" IsReadOnly=""True"" TextWrapping=""Wrap"" VerticalScrollBarVisibility=""Auto""/>
-                        <StackPanel Grid.Row=""1"" Orientation=""Horizontal"" HorizontalAlignment=""Right"" Margin=""0,10,0,0"">
-                            <Button x:Name=""btnCopyLog"" Content=""Копировать"" Width=""85"" Height=""26"" Background=""#252538"" Foreground=""White"" BorderThickness=""0"" Margin=""0,0,8,0"" Cursor=""Hand""/>
-                            <Button x:Name=""btnClearLog"" Content=""Очистить"" Width=""75"" Height=""26"" Background=""#252538"" Foreground=""White"" BorderThickness=""0"" Cursor=""Hand""/>
-                        </StackPanel>
-                    </Grid>
-                </Grid>
-            </Grid>
-        </Border>
-    </Grid>
-</Window>";
-
-            _window = (Window)XamlReader.Parse(xaml);
+            // Parse verbatim original XAML
+            _window = (Window)XamlReader.Parse(AppXaml.Xaml);
             Win32.EnableDarkTitleBar(_window);
 
-            // Bind Elements
-            _crabHost = (Canvas)_window.FindName("crabHost");
-            _trackLine = (Line)_window.FindName("trackLine");
-            _brokenTrackLine = (Line)_window.FindName("brokenTrackLine");
-            _txtZzz = (TextBlock)_window.FindName("txtZzz");
-            _dayLayer = (Grid)_window.FindName("dayLayer");
-            _nightLayer = (Grid)_window.FindName("nightLayer");
-            _sinisterLayer = (Grid)_window.FindName("sinisterLayer");
-
-            _lblPublicIP = (TextBlock)_window.FindName("lblPublicIP");
-            _txtIP = (TextBlock)_window.FindName("txtIP");
-            _lblCountry = (TextBlock)_window.FindName("lblCountry");
-            _txtCountry = (TextBlock)_window.FindName("txtCountry");
-            _lblISP = (TextBlock)_window.FindName("lblISP");
-            _txtISP = (TextBlock)_window.FindName("txtISP");
-            _lblPinnedIP = (TextBlock)_window.FindName("lblPinnedIP");
-            _txtPinnedIP = (TextBlock)_window.FindName("txtPinnedIP");
-            _txtGuardDot = (TextBlock)_window.FindName("txtGuardDot");
-            _txtGuardStatus = (TextBlock)_window.FindName("txtGuardStatus");
-            _txtProtecting = (TextBlock)_window.FindName("txtProtecting");
-            _txtCrabStatus = (TextBlock)_window.FindName("txtCrabStatus");
-            _txtStatusShort = (TextBlock)_window.FindName("txtStatusShort");
-            _statusDot = (Ellipse)_window.FindName("statusDot");
-            _bdFlag = (Border)_window.FindName("bdFlag");
-            _imgFlag = (Image)_window.FindName("imgFlag");
-
-            _btnPin = (Button)_window.FindName("btnPin");
-            _btnLaunch = (Button)_window.FindName("btnLaunch");
-            _btnToggleGuard = (Button)_window.FindName("btnToggleGuard");
+            // Bind Window Elements
+            _imgTitleLogo = (Image)_window.FindName("imgTitleLogo");
+            _txtAppTitle = (TextBlock)_window.FindName("txtAppTitle");
             _btnConfig = (Button)_window.FindName("btnConfig");
             _btnLog = (Button)_window.FindName("btnLog");
             _btnLang = (Button)_window.FindName("btnLang");
             _txtLangBtn = (TextBlock)_window.FindName("txtLangBtn");
+            _statusDot = (System.Windows.Shapes.Ellipse)_window.FindName("statusDot");
+            _txtStatusShort = (TextBlock)_window.FindName("txtStatusShort");
 
-            _drawerPanel = (Border)_window.FindName("drawerPanel");
+            _lblPublicIP = (TextBlock)_window.FindName("lblPublicIP");
+            _txtIP = (TextBlock)_window.FindName("txtIP");
+            _lblCountry = (TextBlock)_window.FindName("lblCountry");
+            _bdFlag = (Border)_window.FindName("bdFlag");
+            _imgFlag = (Image)_window.FindName("imgFlag");
+            _txtCountry = (TextBlock)_window.FindName("txtCountry");
+            _lblISP = (TextBlock)_window.FindName("lblISP");
+            _txtISP = (TextBlock)_window.FindName("txtISP");
+
+            _lblPinnedIP = (TextBlock)_window.FindName("lblPinnedIP");
+            _txtPinnedIP = (TextBlock)_window.FindName("txtPinnedIP");
+            _btnPin = (Button)_window.FindName("btnPin");
+
+            _txtGuardDot = (TextBlock)_window.FindName("txtGuardDot");
+            _txtGuardStatus = (TextBlock)_window.FindName("txtGuardStatus");
+            _txtProtecting = (TextBlock)_window.FindName("txtProtecting");
+
+            _btnStart = (Button)_window.FindName("btnStart");
+            _btnStop = (Button)_window.FindName("btnStop");
+            _btnClaude = (Button)_window.FindName("btnClaude");
+
+            // Claude Terminal Panel
+            _imgClaudeLogo = (Image)_window.FindName("imgClaudeLogo");
+            _trackCanvas = (Canvas)_window.FindName("trackCanvas");
+            _dayLayer = (Canvas)_window.FindName("dayLayer");
+            _dayCloud1 = (Canvas)_window.FindName("dayCloud1");
+            _dayCloud2 = (Canvas)_window.FindName("dayCloud2");
+            _sunHost = (Canvas)_window.FindName("sunHost");
+
+            _nightLayer = (Canvas)_window.FindName("nightLayer");
+            _star1 = (TextBlock)_window.FindName("star1");
+            _star2 = (TextBlock)_window.FindName("star2");
+            _star3 = (TextBlock)_window.FindName("star3");
+            _star4 = (TextBlock)_window.FindName("star4");
+            _nightCloud1 = (Canvas)_window.FindName("nightCloud1");
+            _nightCloud2 = (Canvas)_window.FindName("nightCloud2");
+            _moonHost = (Canvas)_window.FindName("moonHost");
+
+            _sinisterLayer = (Canvas)_window.FindName("sinisterLayer");
+            _stormCloud = (Canvas)_window.FindName("stormCloud");
+            _bloodMoonHost = (Canvas)_window.FindName("bloodMoonHost");
+
+            _trackLine = (Line)_window.FindName("trackLine");
+            _brokenTrackLine = (Line)_window.FindName("brokenTrackLine");
+            _crabHost = (Canvas)_window.FindName("crabHost");
+            _txtZzz = (TextBlock)_window.FindName("txtZzz");
+            _txtCrabStatus = (TextBlock)_window.FindName("txtCrabStatus");
+
+            // Drawer
+            _drawerOverlay = (Border)_window.FindName("drawerOverlay");
+            _sideDrawer = (Border)_window.FindName("sideDrawer");
+            _txtDrawerIcon = (TextBlock)_window.FindName("txtDrawerIcon");
             _txtDrawerTitle = (TextBlock)_window.FindName("txtDrawerTitle");
+            _btnDrawerClose = (Button)_window.FindName("btnDrawerClose");
+
             _viewConfig = (StackPanel)_window.FindName("viewConfig");
-            _viewLog = (Grid)_window.FindName("viewLog");
+            _lblCfgPinnedIP = (TextBlock)_window.FindName("lblCfgPinnedIP");
             _inPinnedIP = (TextBox)_window.FindName("inPinnedIP");
+            _btnCfgUseCurrent = (Button)_window.FindName("btnCfgUseCurrent");
+            _lblCfgProcess = (TextBlock)_window.FindName("lblCfgProcess");
             _inProcess = (TextBox)_window.FindName("inProcess");
+            _lblCfgInterval = (TextBlock)_window.FindName("lblCfgInterval");
             _inInterval = (TextBox)_window.FindName("inInterval");
-            _txtLogBody = (TextBox)_window.FindName("txtLogBody");
             _chkAutoExit = (CheckBox)_window.FindName("chkAutoExit");
             _chkTray = (CheckBox)_window.FindName("chkTray");
-            _imgTitleLogo = (Image)_window.FindName("imgTitleLogo");
+            _btnCfgCancel = (Button)_window.FindName("btnCfgCancel");
+            _btnCfgSave = (Button)_window.FindName("btnCfgSave");
 
-            var btnCloseDrawer = (Button)_window.FindName("btnCloseDrawer");
-            var btnCfgUseCurrent = (Button)_window.FindName("btnCfgUseCurrent");
-            var btnCfgCancel = (Button)_window.FindName("btnCfgCancel");
-            var btnCfgSave = (Button)_window.FindName("btnCfgSave");
-            var btnCopyLog = (Button)_window.FindName("btnCopyLog");
-            var btnClearLog = (Button)_window.FindName("btnClearLog");
+            _viewLog = (Grid)_window.FindName("viewLog");
+            _txtLogBody = (TextBox)_window.FindName("txtLogBody");
+            _btnCopyLog = (Button)_window.FindName("btnCopyLog");
+            _btnClearLog = (Button)_window.FindName("btnClearLog");
 
-            // Attach Pixel Scenery
-            ((Canvas)_window.FindName("sunHost")).Children.Add(PixelArt.MakeSun(1.8));
-            ((Canvas)_window.FindName("moonHost")).Children.Add(PixelArt.MakeMoon(false, 1.8));
-            ((Canvas)_window.FindName("bloodMoonHost")).Children.Add(PixelArt.MakeMoon(true, 1.8));
-            ((Canvas)_window.FindName("dayCloud1")).Children.Add(PixelArt.MakeCloud("#454868", "#8588AC", 1.8));
-            ((Canvas)_window.FindName("dayCloud2")).Children.Add(PixelArt.MakeCloud("#454868", "#8588AC", 1.8));
-            ((Canvas)_window.FindName("nightCloud1")).Children.Add(PixelArt.MakeCloud("#28283c", "#3a3a54", 1.8));
-            ((Canvas)_window.FindName("nightCloud2")).Children.Add(PixelArt.MakeCloud("#28283c", "#3a3a54", 1.8));
-            ((Canvas)_window.FindName("stormCloud")).Children.Add(PixelArt.MakeCloud("#222230", "#5c222a", 1.8));
-
-            // Attach Crab Frames
-            string[] frameKeys = new string[] { "Sleep", "AwakeA", "AwakeB", "AwakeLeft", "AwakeRight", "Walk1", "Walk2", "Walk3", "Walk4", "Dead" };
-            foreach (string k in frameKeys)
+            // Red glow effect for Claude Logo alert
+            _claudeRedGlow = new DropShadowEffect
             {
-                var frame = PixelArt.MakeCrabFrame(k, 2.4);
-                frame.Visibility = Visibility.Collapsed;
-                _crabFrames[k] = frame;
-                _crabHost.Children.Add(frame);
-            }
-            _crabFrames["Sleep"].Visibility = Visibility.Visible;
+                Color = Color.FromArgb(255, 224, 80, 80),
+                BlurRadius = 14,
+                ShadowDepth = 0,
+                Opacity = 0.85
+            };
 
-            // Load Icon from local file or executable
-            try
-            {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ClawGuard.ico");
-                if (File.Exists(icoPath))
-                {
-                    _window.Icon = new BitmapImage(new Uri(icoPath));
-                    _imgTitleLogo.Source = _window.Icon;
-                }
-            }
-            catch { }
+            // Set Claude Logo to normal terracotta
+            _imgClaudeLogo.Source = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoNormal);
 
-            // Attach System Tray
-            AttachTray();
+            // Set Title Logo
+            BitmapImage titleIcon = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoNormal);
+            if (titleIcon != null) _imgTitleLogo.Source = titleIcon;
 
-            // Setup Events
-            _btnPin.Click += (s, e) => PinCurrentIP();
-            _btnLaunch.Click += (s, e) => LaunchClaude();
-            _btnToggleGuard.Click += (s, e) => ToggleGuard();
+            // Build Pixel Art Scenery & Crab Frames
+            BuildPixelScenery();
+            BuildPixelCrab();
+
+            // Setup Tray Icon
+            SetupTray();
+
+            // Wire UI Event Handlers
+            _btnConfig.Click += (s, e) => OpenDrawer("config");
+            _btnLog.Click += (s, e) => OpenDrawer("log");
             _btnLang.Click += (s, e) => ToggleLanguage();
-            _btnConfig.Click += (s, e) => OpenDrawer(true);
-            _btnLog.Click += (s, e) => OpenDrawer(false);
-            btnCloseDrawer.Click += (s, e) => CloseDrawer();
-            btnCfgCancel.Click += (s, e) => CloseDrawer();
-            btnCfgUseCurrent.Click += (s, e) => { if (!string.IsNullOrEmpty(NativeIPResolver.IP)) _inPinnedIP.Text = NativeIPResolver.IP; };
-            btnCfgSave.Click += (s, e) => SaveDrawerConfig();
-            btnCopyLog.Click += (s, e) => { if (!string.IsNullOrEmpty(_txtLogBody.Text)) Clipboard.SetText(_txtLogBody.Text); };
-            btnClearLog.Click += (s, e) => { _logEntries.Clear(); _txtLogBody.Text = ""; };
+            _btnDrawerClose.Click += (s, e) => CloseDrawer();
+            _drawerOverlay.MouseDown += (s, e) => CloseDrawer();
+
+            _btnCfgUseCurrent.Click += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(_state.CurrentIP))
+                    _inPinnedIP.Text = _state.CurrentIP;
+            };
+
+            _btnCfgSave.Click += (s, e) => SaveConfigFromDrawer();
+            _btnCfgCancel.Click += (s, e) => CloseDrawer();
+
+            _btnCopyLog.Click += (s, e) =>
+            {
+                try { Clipboard.SetText(_txtLogBody.Text ?? ""); Log("Log copied to clipboard.", "UI"); } catch { }
+            };
+            _btnClearLog.Click += (s, e) =>
+            {
+                _logEntries.Clear();
+                _txtLogBody.Text = "";
+                Log("Log buffer cleared.", "UI");
+            };
+
+            _btnPin.Click += (s, e) => PinCurrentIP();
+            _btnStart.Click += (s, e) => StartGuard();
+            _btnStop.Click += (s, e) => StopGuard();
+            _btnClaude.Click += (s, e) => LaunchClaude();
+
+            // Timers
+            _crabTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(45) };
+            _crabTimer.Tick += OnCrabTick;
+
+            _mainTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _mainTimer.Tick += OnMainTick;
+
+            _window.Loaded += (s, e) =>
+            {
+                ApplyLanguage();
+                if (!string.IsNullOrEmpty(_state.PinnedIP))
+                {
+                    _txtPinnedIP.Text = _state.PinnedIP;
+                    _txtPinnedIP.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
+                }
+                NativeIPResolver.StartFetch();
+                UpdateGuardStatus();
+                CheckClaudeProcess();
+                UpdateCrabState();
+                _mainTimer.Start();
+                _crabTimer.Start();
+                Log("ClawGuard UI loaded. Ready.", "INIT");
+            };
 
             _window.Closing += (s, e) =>
             {
-                e.Cancel = true;
-                _window.Hide();
-                if (!_config.TrayNotified)
+                if (!_quitting)
                 {
-                    _config.TrayNotified = true;
-                    _config.Save();
-                    _notifyIcon.ShowBalloonTip(3000, I18n.T(_config.Language, "TrayHideTitle"), I18n.T(_config.Language, "TrayHideMsg"), Forms.ToolTipIcon.Info);
+                    e.Cancel = true;
+                    _window.Hide();
+                    if (_config.NotifyOnTray && _notifyIcon != null)
+                    {
+                        _notifyIcon.ShowBalloonTip(2000, GetText("TrayTitle"), GetText("TrayBg"), Forms.ToolTipIcon.Info);
+                    }
                 }
             };
+        }
 
-            // Timers
-            var crabTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(45) };
-            crabTimer.Tick += OnCrabTick;
-            crabTimer.Start();
+        #region Pixel Scenery & Mascot Builder
 
-            var mainTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            mainTimer.Tick += OnMainTick;
-            mainTimer.Start();
+        private static void BuildPixelScenery()
+        {
+            double scale = 1.8;
+            BrushConverter bc = new BrushConverter();
 
-            ApplyLanguage();
-            if (!string.IsNullOrEmpty(_config.PinnedIP))
+            Func<int, int, Canvas> makePxCanvas = (w, h) => new Canvas
             {
-                _txtPinnedIP.Text = _config.PinnedIP;
-                _txtPinnedIP.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
-            }
+                Width = w * scale,
+                Height = h * scale,
+                ClipToBounds = false
+            };
 
-            Log("ClawGuard 2.5 initialized in native C#.", "INIT");
-            NativeIPResolver.StartFetch();
-            UpdateGuardStatus();
+            Action<Canvas, int, int, Brush> drawPx = (cv, x, y, br) =>
+            {
+                var r = new Rectangle
+                {
+                    Width = scale,
+                    Height = scale,
+                    Fill = br
+                };
+                Canvas.SetLeft(r, x * scale);
+                Canvas.SetTop(r, y * scale);
+                cv.Children.Add(r);
+            };
+
+            // 1. Crescent Moon
+            Func<bool, Canvas> makeMoon = (isBlood) =>
+            {
+                Canvas cv = makePxCanvas(9, 9);
+                Brush hi = (Brush)bc.ConvertFrom(isBlood ? "#E05050" : "#F0F2FA");
+                Brush mid = (Brush)bc.ConvertFrom(isBlood ? "#A83236" : "#B4B8D0");
+                Brush dk = (Brush)bc.ConvertFrom(isBlood ? "#5A1A1E" : "#686C88");
+
+                for (int x = 4; x <= 8; x++) drawPx(cv, x, 0, hi);
+                drawPx(cv, 2, 1, hi); drawPx(cv, 3, 1, hi); drawPx(cv, 4, 1, mid); drawPx(cv, 8, 1, mid);
+                drawPx(cv, 1, 2, hi); drawPx(cv, 2, 2, hi); drawPx(cv, 3, 2, mid); drawPx(cv, 7, 2, dk);
+                drawPx(cv, 0, 3, hi); drawPx(cv, 1, 3, hi); drawPx(cv, 2, 3, mid);
+                drawPx(cv, 0, 4, hi); drawPx(cv, 1, 4, hi); drawPx(cv, 2, 4, mid);
+                drawPx(cv, 0, 5, hi); drawPx(cv, 1, 5, hi); drawPx(cv, 2, 5, mid);
+                drawPx(cv, 1, 6, hi); drawPx(cv, 2, 6, hi); drawPx(cv, 3, 6, mid); drawPx(cv, 7, 6, dk);
+                drawPx(cv, 2, 7, hi); drawPx(cv, 3, 7, hi); drawPx(cv, 4, 7, mid); drawPx(cv, 8, 7, mid);
+                for (int x = 4; x <= 8; x++) drawPx(cv, x, 8, hi);
+                return cv;
+            };
+
+            // 2. 8-Bit Pixel Sun
+            Func<Canvas> makeSun = () =>
+            {
+                Canvas cv = makePxCanvas(8, 8);
+                Brush ray = (Brush)bc.ConvertFrom("#F6C845");
+                Brush core = (Brush)bc.ConvertFrom("#FFE660");
+
+                drawPx(cv, 3, 0, ray); drawPx(cv, 4, 0, ray);
+                drawPx(cv, 3, 7, ray); drawPx(cv, 4, 7, ray);
+                drawPx(cv, 0, 3, ray); drawPx(cv, 0, 4, ray);
+                drawPx(cv, 7, 3, ray); drawPx(cv, 7, 4, ray);
+                drawPx(cv, 1, 1, ray); drawPx(cv, 6, 1, ray);
+                drawPx(cv, 1, 6, ray); drawPx(cv, 6, 6, ray);
+                for (int y = 2; y <= 5; y++)
+                {
+                    for (int x = 2; x <= 5; x++) drawPx(cv, x, y, core);
+                }
+                drawPx(cv, 3, 1, core); drawPx(cv, 4, 1, core);
+                drawPx(cv, 3, 6, core); drawPx(cv, 4, 6, core);
+                drawPx(cv, 1, 3, core); drawPx(cv, 1, 4, core);
+                drawPx(cv, 6, 3, core); drawPx(cv, 6, 4, core);
+                return cv;
+            };
+
+            // 3. Stepped Cloud Silhouette
+            Func<string, string, Canvas> makeCloud = (colHex, hiHex) =>
+            {
+                Canvas cv = makePxCanvas(18, 6);
+                Brush col = (Brush)bc.ConvertFrom(colHex);
+                Brush hi = (Brush)bc.ConvertFrom(hiHex);
+
+                for (int x = 4; x <= 10; x++) { drawPx(cv, x, 0, hi); drawPx(cv, x, 1, col); }
+                for (int x = 2; x <= 14; x++) { drawPx(cv, x, 2, hi); drawPx(cv, x, 3, col); }
+                for (int x = 0; x <= 17; x++) { drawPx(cv, x, 4, col); drawPx(cv, x, 5, col); }
+                return cv;
+            };
+
+            _sunHost.Children.Add(makeSun());
+            _moonHost.Children.Add(makeMoon(false));
+            _bloodMoonHost.Children.Add(makeMoon(true));
+
+            _dayCloud1.Children.Add(makeCloud("#454868", "#8588AC"));
+            _dayCloud2.Children.Add(makeCloud("#454868", "#8588AC"));
+
+            _nightCloud1.Children.Add(makeCloud("#28283c", "#3a3a54"));
+            _nightCloud2.Children.Add(makeCloud("#28283c", "#3a3a54"));
+
+            _stormCloud.Children.Add(makeCloud("#222230", "#5c222a"));
+        }
+
+        private static void BuildPixelCrab()
+        {
+            double scale = 2.4;
+            BrushConverter bc = new BrushConverter();
+            Brush cCrab = (Brush)bc.ConvertFrom("#D97757");
+            Brush cEyeCutout = (Brush)bc.ConvertFrom("#0f0f16");
+            Brush cRed = (Brush)bc.ConvertFrom("#E05050");
+            Brush cWhite = (Brush)bc.ConvertFrom("#FFFFFF");
+
+            Func<string, Canvas> makeFrame = (state) =>
+            {
+                Canvas c = new Canvas
+                {
+                    Width = 14 * scale,
+                    Height = 11 * scale,
+                    ClipToBounds = false
+                };
+
+                Brush b = (state == "Dead") ? cRed : cCrab;
+                int yBob = (state == "AwakeB") ? 1 : 0;
+
+                Action<int, int, Brush> px = (x, y, brush) =>
+                {
+                    var r = new Rectangle
+                    {
+                        Width = scale,
+                        Height = scale,
+                        Fill = brush
+                    };
+                    Canvas.SetLeft(r, x * scale);
+                    Canvas.SetTop(r, y * scale);
+                    c.Children.Add(r);
+                };
+
+                // Horns/Pincers
+                int[] hornX = new int[] { 2, 3, 10, 11 };
+                if (state == "AwakeLeft") hornX = new int[] { 1, 2, 9, 10 };
+                if (state == "AwakeRight") hornX = new int[] { 3, 4, 11, 12 };
+                foreach (int x in hornX)
+                {
+                    px(x, 0 + yBob, b);
+                    px(x, 1 + yBob, b);
+                }
+
+                // Head top
+                for (int x = 2; x <= 11; x++) px(x, 2 + yBob, b);
+
+                // Main body
+                for (int y = 3; y <= 6; y++)
+                {
+                    for (int x = 0; x <= 13; x++) px(x, y + yBob, b);
+                }
+
+                // Body bottom
+                for (int x = 2; x <= 11; x++) px(x, 7 + yBob, b);
+
+                // Eyes
+                if (state == "Dead")
+                {
+                    px(3, 3, cWhite); px(4, 4, cWhite);
+                    px(4, 3, cEyeCutout); px(3, 4, cEyeCutout);
+                    px(9, 3, cWhite); px(10, 4, cWhite);
+                    px(10, 3, cEyeCutout); px(9, 4, cEyeCutout);
+                }
+                else if (state == "Sleep")
+                {
+                    px(3, 4, cEyeCutout); px(4, 4, cEyeCutout);
+                    px(9, 4, cEyeCutout); px(10, 4, cEyeCutout);
+                }
+                else if (state == "AwakeLeft")
+                {
+                    px(2, 3 + yBob, cEyeCutout); px(3, 3 + yBob, cEyeCutout);
+                    px(2, 4 + yBob, cEyeCutout); px(3, 4 + yBob, cEyeCutout);
+                    px(8, 3 + yBob, cEyeCutout); px(9, 3 + yBob, cEyeCutout);
+                    px(8, 4 + yBob, cEyeCutout); px(9, 4 + yBob, cEyeCutout);
+                }
+                else if (state == "AwakeRight")
+                {
+                    px(4, 3 + yBob, cEyeCutout); px(5, 3 + yBob, cEyeCutout);
+                    px(4, 4 + yBob, cEyeCutout); px(5, 4 + yBob, cEyeCutout);
+                    px(10, 3 + yBob, cEyeCutout); px(11, 3 + yBob, cEyeCutout);
+                    px(10, 4 + yBob, cEyeCutout); px(11, 4 + yBob, cEyeCutout);
+                }
+                else
+                {
+                    px(3, 3 + yBob, cEyeCutout); px(4, 3 + yBob, cEyeCutout);
+                    px(3, 4 + yBob, cEyeCutout); px(4, 4 + yBob, cEyeCutout);
+                    px(9, 3 + yBob, cEyeCutout); px(10, 3 + yBob, cEyeCutout);
+                    px(9, 4 + yBob, cEyeCutout); px(10, 4 + yBob, cEyeCutout);
+                }
+
+                // Legs (4 rhythmic phases)
+                int[] legCols;
+                switch (state)
+                {
+                    case "Walk1": legCols = new int[] { 0, 1, 4, 5, 8, 9, 12, 13 }; break;
+                    case "Walk2": legCols = new int[] { 1, 2, 4, 5, 8, 9, 11, 12 }; break;
+                    case "Walk3": legCols = new int[] { 1, 2, 5, 6, 7, 8, 11, 12 }; break;
+                    case "Walk4": legCols = new int[] { 1, 2, 4, 5, 8, 9, 11, 12 }; break;
+                    default: legCols = new int[] { 1, 2, 4, 5, 8, 9, 11, 12 }; break;
+                }
+                foreach (int x in legCols)
+                {
+                    px(x, 8 + yBob, b);
+                    px(x, 9 + yBob, b);
+                }
+
+                return c;
+            };
+
+            _crabFrames = new Dictionary<string, Canvas>
+            {
+                { "Sleep", makeFrame("Sleep") },
+                { "AwakeA", makeFrame("AwakeA") },
+                { "AwakeB", makeFrame("AwakeB") },
+                { "AwakeLeft", makeFrame("AwakeLeft") },
+                { "AwakeRight", makeFrame("AwakeRight") },
+                { "Walk1", makeFrame("Walk1") },
+                { "Walk2", makeFrame("Walk2") },
+                { "Walk3", makeFrame("Walk3") },
+                { "Walk4", makeFrame("Walk4") },
+                { "Dead", makeFrame("Dead") }
+            };
+
+            foreach (var kvp in _crabFrames)
+            {
+                kvp.Value.Visibility = Visibility.Collapsed;
+                _crabHost.Children.Add(kvp.Value);
+            }
+            _crabFrames["Sleep"].Visibility = Visibility.Visible;
         }
 
         private static void SetActiveCrabFrame(string frameKey)
         {
-            foreach (var kv in _crabFrames)
+            if (_crabFrames == null) return;
+            foreach (var kvp in _crabFrames)
             {
-                kv.Value.Visibility = kv.Key == frameKey ? Visibility.Visible : Visibility.Collapsed;
+                kvp.Value.Visibility = (kvp.Key == frameKey) ? Visibility.Visible : Visibility.Collapsed;
             }
         }
+
+        #endregion
+
+        #region Language & Localization
+
+        private static void ApplyLanguage()
+        {
+            _txtAppTitle.Text = GetText("AppTitle");
+            _lblPublicIP.Text = GetText("PublicIP");
+            _lblCountry.Text = GetText("Country");
+            _lblISP.Text = GetText("ISP");
+            _lblPinnedIP.Text = GetText("PinnedIP");
+
+            _btnPin.Content = string.IsNullOrEmpty(_state.PinnedIP) ? GetText("PinBtn") : GetText("PinUpdate");
+            _btnStart.Content = GetText("StartBtn");
+            _btnStop.Content = GetText("StopBtn");
+            _btnClaude.Content = GetText("LaunchClaude");
+
+            _txtLangBtn.Text = string.Equals(_config.Language, "RU", StringComparison.OrdinalIgnoreCase) ? "RU" : "EN";
+
+            // Drawer
+            if (_currentDrawerMode == "config")
+                _txtDrawerTitle.Text = GetText("CfgTitle");
+            else if (_currentDrawerMode == "log")
+                _txtDrawerTitle.Text = GetText("LogTitle");
+
+            _lblCfgPinnedIP.Text = GetText("CfgPinnedIP");
+            _btnCfgUseCurrent.Content = GetText("CfgUseCurr");
+            _lblCfgProcess.Text = GetText("CfgProcess");
+            _lblCfgInterval.Text = GetText("CfgInterval");
+            _chkAutoExit.Content = GetText("CfgAutoExit");
+            _chkTray.Content = GetText("CfgResetTray");
+            _btnCfgSave.Content = GetText("CfgSave");
+            _btnCfgCancel.Content = GetText("CfgCancel");
+
+            _btnCopyLog.Content = GetText("LogCopy");
+            _btnClearLog.Content = GetText("LogClear");
+
+            UpdateStatusIndicator();
+            UpdateGuardStatus();
+            UpdateCrabState();
+        }
+
+        private static void ToggleLanguage()
+        {
+            _config.Language = string.Equals(_config.Language, "RU", StringComparison.OrdinalIgnoreCase) ? "EN" : "RU";
+            _config.Save();
+            ApplyLanguage();
+            Log("Language switched to " + _config.Language, "UI");
+        }
+
+        #endregion
+
+        #region Status Updates & Timer Loops
 
         private static void OnCrabTick(object sender, EventArgs e)
         {
             if (NativeIPResolver.HasNewResult)
             {
                 NativeIPResolver.HasNewResult = false;
-                ApplyIPResult();
+                ApplyIPInfoResult(NativeIPResolver.Success);
             }
 
             if (!_window.IsVisible) return; // 0% CPU in tray
@@ -1132,7 +1128,6 @@ namespace ClawGuard
                 case "Sleep":
                     Canvas.SetLeft(_crabHost, 152);
                     SetActiveCrabFrame("Sleep");
-
                     _txtZzz.Visibility = Visibility.Visible;
                     _zzzOffset += (0.10 * _zzzDir);
                     if (_zzzOffset > 3.5) _zzzDir = -1.0;
@@ -1178,6 +1173,8 @@ namespace ClawGuard
         private static void OnMainTick(object sender, EventArgs e)
         {
             CheckClaudeProcess();
+            if (_quitting) return;
+
             UpdateCrabState();
 
             _tickCount++;
@@ -1189,64 +1186,128 @@ namespace ClawGuard
             }
         }
 
-        private static void CheckClaudeProcess()
+        private static void ApplyIPInfoResult(bool success)
         {
-            string procName = Path.GetFileNameWithoutExtension(_config.ProcessName);
-            if (string.IsNullOrEmpty(procName)) procName = "Claude";
-
-            Process[] procs = Process.GetProcessesByName(procName);
-            if (procs.Length > 0)
+            var bc = new BrushConverter();
+            if (success && !string.IsNullOrEmpty(NativeIPResolver.IP))
             {
-                _isClaudeRunning = true;
-                _hasSeenClaude = true;
-                _claudeClosedTicks = 0;
+                _state.CurrentIP = NativeIPResolver.IP;
+                _state.CountryCode = NativeIPResolver.CountryCode;
+                _state.Country = NativeIPResolver.Country;
+                _state.ISP = NativeIPResolver.ISP;
 
-                // Fail-Closed Kill Switch check!
-                if (!string.IsNullOrEmpty(_config.PinnedIP) && !string.IsNullOrEmpty(NativeIPResolver.IP) &&
-                    NativeIPResolver.IP != _config.PinnedIP)
+                _txtIP.Text = _state.CurrentIP;
+                _txtCountry.Text = _state.Country;
+                _txtISP.Text = _state.ISP;
+
+                BitmapImage flag = EmbeddedAssets.GetFlagBitmap(_state.CountryCode);
+                if (flag != null)
                 {
-                    Log(string.Format("KILL-SWITCH TRIGGERED: IP {0} does not match pinned {1}!", NativeIPResolver.IP, _config.PinnedIP), "KILL");
-                    foreach (var p in procs)
-                    {
-                        try { p.Kill(); } catch { }
-                    }
-                    _isClaudeRunning = false;
-                    _notifyIcon.ShowBalloonTip(4000, I18n.T(_config.Language, "TrayKillTitle"),
-                        string.Format(I18n.T(_config.Language, "TrayKillMsg"), NativeIPResolver.IP), Forms.ToolTipIcon.Error);
+                    _imgFlag.Source = flag;
+                    _bdFlag.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    _bdFlag.Visibility = Visibility.Collapsed;
+                }
+
+                Log(string.Format("IP verified: {0} ({1}, {2})", _state.CurrentIP, _state.Country, _state.ISP), "NET");
+
+                // Fail-closed enforcement if guard active
+                if (_state.IsRunning && !string.IsNullOrEmpty(_state.PinnedIP) && _state.CurrentIP != _state.PinnedIP)
+                {
+                    KillProtectedApps("IP mismatch detected");
                 }
             }
             else
             {
-                _isClaudeRunning = false;
-                if (_hasSeenClaude)
-                {
-                    if (_config.AutoExitWithApp)
-                    {
-                        _claudeClosedTicks++;
-                        if (_claudeClosedTicks >= 2)
-                        {
-                            Log("Claude closed and AutoExitWithApp enabled. Exiting.", "EXIT");
-                            ExitApp();
-                        }
-                    }
-                    else
-                    {
-                        _hasSeenClaude = false;
-                        _claudeClosedTicks = 0;
-                    }
-                }
+                _state.CurrentIP = null;
+                _state.CountryCode = null;
+                _state.Country = null;
+                _state.ISP = null;
+
+                _txtIP.Text = GetText("NoConnection");
+                _txtCountry.Text = "—";
+                _txtISP.Text = "—";
+                _bdFlag.Visibility = Visibility.Collapsed;
+                Log("Unable to fetch public IP (Offline).", "WARN");
             }
+
+            UpdateStatusIndicator();
+            UpdateGuardStatus();
+            UpdateCrabState();
+        }
+
+        private static void UpdateStatusIndicator()
+        {
+            var bc = new BrushConverter();
+            if (string.IsNullOrEmpty(_state.PinnedIP))
+            {
+                _statusDot.Fill = (Brush)bc.ConvertFrom("#444466");
+                _txtStatusShort.Text = GetText("NoPIN");
+                return;
+            }
+            if (string.IsNullOrEmpty(_state.CurrentIP))
+            {
+                _statusDot.Fill = (Brush)bc.ConvertFrom("#e05050");
+                _txtStatusShort.Text = GetText("Offline");
+                return;
+            }
+            if (_state.CurrentIP == _state.PinnedIP)
+            {
+                _statusDot.Fill = (Brush)bc.ConvertFrom("#2cb67d");
+                _txtStatusShort.Text = GetText("IPOk");
+            }
+            else
+            {
+                _statusDot.Fill = (Brush)bc.ConvertFrom("#e05050");
+                _txtStatusShort.Text = GetText("IPChanged");
+            }
+        }
+
+        private static void UpdateGuardStatus()
+        {
+            var bc = new BrushConverter();
+            if (_state.IsRunning)
+            {
+                _txtGuardDot.Text = "●";
+                _txtGuardDot.Foreground = (Brush)bc.ConvertFrom("#2cb67d");
+                _txtGuardStatus.Text = GetText("GuardActive");
+                _txtProtecting.Text = string.Format(GetText("Protecting"), _config.ProcessName);
+                _btnStop.IsEnabled = true;
+                _btnStart.IsEnabled = false;
+            }
+            else
+            {
+                _txtGuardDot.Text = "○";
+                _txtGuardDot.Foreground = (Brush)bc.ConvertFrom("#e05050");
+                _txtGuardStatus.Text = GetText("GuardStopped");
+                _txtProtecting.Text = "";
+                _btnStop.IsEnabled = false;
+                _btnStart.IsEnabled = !string.IsNullOrEmpty(_state.PinnedIP);
+            }
+
+            _btnClaude.IsEnabled = (
+                !string.IsNullOrEmpty(_state.PinnedIP) &&
+                !string.IsNullOrEmpty(_state.CurrentIP) &&
+                _state.CurrentIP == _state.PinnedIP
+            );
         }
 
         private static void UpdateCrabState()
         {
-            // 1. Mismatch -> Dead
-            if (!string.IsNullOrEmpty(_config.PinnedIP) && !string.IsNullOrEmpty(NativeIPResolver.IP) &&
-                NativeIPResolver.IP != _config.PinnedIP)
+            var bc = new BrushConverter();
+
+            // 1. IP Mismatch / Unsafe -> Dead
+            if (!string.IsNullOrEmpty(_state.PinnedIP) && !string.IsNullOrEmpty(_state.CurrentIP) && _state.CurrentIP != _state.PinnedIP)
             {
                 _currentCrabMode = "Dead";
-                _txtCrabStatus.Text = I18n.T(_config.Language, "CrabDead");
-                _txtCrabStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#E05050");
+                _txtCrabStatus.Text = GetText("CrabDead");
+                _txtCrabStatus.Foreground = (Brush)bc.ConvertFrom("#E05050");
+
+                _imgClaudeLogo.Source = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoRed);
+                _imgClaudeLogo.Effect = _claudeRedGlow;
+
                 _sinisterLayer.Visibility = Visibility.Visible;
                 _dayLayer.Visibility = Visibility.Collapsed;
                 _nightLayer.Visibility = Visibility.Collapsed;
@@ -1257,16 +1318,20 @@ namespace ClawGuard
                 return;
             }
 
+            // Normal matching IP: reset Claude logo to terracotta
+            _imgClaudeLogo.Source = EmbeddedAssets.Base64ToBitmapImage(EmbeddedAssets.ClaudeLogoNormal);
+            _imgClaudeLogo.Effect = null;
             _brokenTrackLine.Visibility = Visibility.Collapsed;
             _trackLine.Visibility = Visibility.Visible;
             _sinisterLayer.Visibility = Visibility.Collapsed;
 
-            // 2. Stopped -> Sleep
-            if (_btnToggleGuard.Content.ToString() == I18n.T(_config.Language, "StartGuard"))
+            // 2. Guard Stopped -> Sleep
+            if (!_state.IsRunning)
             {
                 _currentCrabMode = "Sleep";
-                _txtCrabStatus.Text = I18n.T(_config.Language, "CrabSleep");
-                _txtCrabStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#8888aa");
+                _txtCrabStatus.Text = GetText("CrabSleep");
+                _txtCrabStatus.Foreground = (Brush)bc.ConvertFrom("#8888aa");
+
                 _nightLayer.Visibility = Visibility.Visible;
                 _dayLayer.Visibility = Visibility.Collapsed;
                 _txtZzz.Visibility = Visibility.Visible;
@@ -1274,7 +1339,7 @@ namespace ClawGuard
                 return;
             }
 
-            // 3. Active -> Day
+            // 3. Guard Active -> Day Sky
             _dayLayer.Visibility = Visibility.Visible;
             _nightLayer.Visibility = Visibility.Collapsed;
             _txtZzz.Visibility = Visibility.Collapsed;
@@ -1288,8 +1353,8 @@ namespace ClawGuard
                     SetActiveCrabFrame("Walk1");
                 }
                 _currentCrabMode = "Walking";
-                _txtCrabStatus.Text = I18n.T(_config.Language, "CrabWalking");
-                _txtCrabStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#D97757");
+                _txtCrabStatus.Text = GetText("CrabWalking");
+                _txtCrabStatus.Foreground = (Brush)bc.ConvertFrom("#D97757");
             }
             else
             {
@@ -1300,256 +1365,273 @@ namespace ClawGuard
                     SetActiveCrabFrame("AwakeA");
                 }
                 _currentCrabMode = "Awake";
-                _txtCrabStatus.Text = I18n.T(_config.Language, "CrabAwake");
-                _txtCrabStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
+                _txtCrabStatus.Text = GetText("CrabAwake");
+                _txtCrabStatus.Foreground = (Brush)bc.ConvertFrom("#2cb67d");
             }
         }
 
-        private static void ApplyIPResult()
+        private static void CheckClaudeProcess()
         {
-            if (NativeIPResolver.Success && !string.IsNullOrEmpty(NativeIPResolver.IP))
-            {
-                _txtIP.Text = NativeIPResolver.IP;
-                _txtCountry.Text = NativeIPResolver.Country ?? "—";
-                _txtISP.Text = NativeIPResolver.ISP ?? "—";
-
-                if (!string.IsNullOrEmpty(NativeIPResolver.CountryCode))
-                {
-                    LoadFlag(NativeIPResolver.CountryCode);
-                }
-            }
-            UpdateGuardStatus();
-        }
-
-        private static void LoadFlag(string code)
-        {
+            string procName = Path.GetFileNameWithoutExtension(_config.ProcessName ?? "Claude");
+            bool running = false;
             try
             {
-                string url = string.Format("https://flagcdn.com/w40/{0}.png", code.ToLower());
-                var bi = new BitmapImage(new Uri(url));
-                _imgFlag.Source = bi;
-                _bdFlag.Visibility = Visibility.Visible;
+                var list = Process.GetProcessesByName(procName);
+                running = (list != null && list.Length > 0);
+            }
+            catch { }
+
+            bool prev = _isClaudeRunning;
+            _isClaudeRunning = running;
+
+            if (prev && !running && _config.AutoExitWithApp && _state.IsRunning)
+            {
+                Log(string.Format("Protected process {0} exited. Auto-closing ClawGuard.", procName), "GUARD");
+                ExitApp();
+            }
+        }
+
+        private static void KillProtectedApps(string reason)
+        {
+            string procName = Path.GetFileNameWithoutExtension(_config.ProcessName ?? "Claude");
+            try
+            {
+                var procs = Process.GetProcessesByName(procName);
+                if (procs != null && procs.Length > 0)
+                {
+                    foreach (var p in procs)
+                    {
+                        try { p.Kill(); } catch { }
+                    }
+                    Log(string.Format("FAIL-CLOSED: Terminated {0} processes ({1})!", procs.Length, reason), "KILL");
+                    if (_notifyIcon != null)
+                    {
+                        _notifyIcon.ShowBalloonTip(3000, "ClawGuard Alert", string.Format("IP Mismatch! Terminated {0}.", procName), Forms.ToolTipIcon.Error);
+                    }
+                }
             }
             catch { }
         }
 
-        private static void UpdateGuardStatus()
-        {
-            bool isGuardOn = _btnToggleGuard.Content.ToString() == I18n.T(_config.Language, "StopGuard");
-            string curIP = NativeIPResolver.IP;
-            string pinIP = _config.PinnedIP;
+        #endregion
 
-            if (string.IsNullOrEmpty(pinIP))
-            {
-                _txtPinnedIP.Text = I18n.T(_config.Language, "NotSet");
-                _txtPinnedIP.Foreground = (Brush)new BrushConverter().ConvertFrom("#e05050");
-            }
-            else
-            {
-                _txtPinnedIP.Text = pinIP;
-            }
-
-            if (!string.IsNullOrEmpty(pinIP) && !string.IsNullOrEmpty(curIP) && curIP != pinIP)
-            {
-                _txtGuardDot.Text = "●";
-                _txtGuardDot.Foreground = (Brush)new BrushConverter().ConvertFrom("#e05050");
-                _txtGuardStatus.Text = I18n.T(_config.Language, "IpMismatch");
-                _txtGuardStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#e05050");
-                _statusDot.Fill = (Brush)new BrushConverter().ConvertFrom("#e05050");
-                _txtStatusShort.Text = I18n.T(_config.Language, "ShortMismatch");
-                _txtStatusShort.Foreground = (Brush)new BrushConverter().ConvertFrom("#e05050");
-                _btnLaunch.IsEnabled = false;
-            }
-            else if (isGuardOn)
-            {
-                _txtGuardDot.Text = "●";
-                _txtGuardDot.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
-                _txtGuardStatus.Text = I18n.T(_config.Language, "GuardActive");
-                _txtGuardStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
-                _statusDot.Fill = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
-                _txtStatusShort.Text = I18n.T(_config.Language, "ShortSafe");
-                _txtStatusShort.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
-                _btnLaunch.IsEnabled = (!string.IsNullOrEmpty(pinIP) && curIP == pinIP);
-            }
-            else
-            {
-                _txtGuardDot.Text = "○";
-                _txtGuardDot.Foreground = (Brush)new BrushConverter().ConvertFrom("#e05050");
-                _txtGuardStatus.Text = I18n.T(_config.Language, "GuardStopped");
-                _txtGuardStatus.Foreground = (Brush)new BrushConverter().ConvertFrom("#8f8fba");
-                _statusDot.Fill = (Brush)new BrushConverter().ConvertFrom("#444466");
-                _txtStatusShort.Text = I18n.T(_config.Language, "ShortInactive");
-                _txtStatusShort.Foreground = (Brush)new BrushConverter().ConvertFrom("#606090");
-                _btnLaunch.IsEnabled = false;
-            }
-        }
+        #region Actions & Controls Handlers
 
         private static void PinCurrentIP()
         {
-            if (string.IsNullOrEmpty(NativeIPResolver.IP))
+            if (string.IsNullOrEmpty(_state.CurrentIP))
             {
-                MessageBox.Show(I18n.T(_config.Language, "MsgNoIP"), "ClawGuard", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(GetText("MsgNoIP"), "ClawGuard", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            _state.PinnedIP = _state.CurrentIP;
+            _config.PinnedIP = _state.PinnedIP;
+            _config.Save();
+
+            _txtPinnedIP.Text = _state.PinnedIP;
+            _txtPinnedIP.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
+            _btnPin.Content = GetText("PinUpdate");
+
+            UpdateStatusIndicator();
+            UpdateGuardStatus();
+            UpdateCrabState();
+            Log("Pinned IP locked to: " + _state.PinnedIP, "PIN");
+        }
+
+        private static void StartGuard()
+        {
+            if (string.IsNullOrEmpty(_state.PinnedIP))
+            {
+                MessageBox.Show(GetText("MsgPinFirst"), "ClawGuard", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            _config.PinnedIP = NativeIPResolver.IP;
-            _config.Save();
-            _txtPinnedIP.Text = _config.PinnedIP;
-            _txtPinnedIP.Foreground = (Brush)new BrushConverter().ConvertFrom("#2cb67d");
-            Log(string.Format("Pinned IP set to {0}", _config.PinnedIP), "CONFIG");
-            UpdateGuardStatus();
-        }
-
-        private static void ToggleGuard()
-        {
-            bool isGuardOn = _btnToggleGuard.Content.ToString() == I18n.T(_config.Language, "StopGuard");
-            if (isGuardOn)
-            {
-                _btnToggleGuard.Content = I18n.T(_config.Language, "StartGuard");
-                _btnToggleGuard.Background = (Brush)new BrushConverter().ConvertFrom("#3a3a55");
-            }
-            else
-            {
-                _btnToggleGuard.Content = I18n.T(_config.Language, "StopGuard");
-                _btnToggleGuard.Background = (Brush)new BrushConverter().ConvertFrom("#5a3fbf");
-            }
+            _state.IsRunning = true;
             UpdateGuardStatus();
             UpdateCrabState();
+            Log(string.Format("Guard started. Monitoring IPv4 == {0}", _state.PinnedIP), "GUARD");
+
+            // Perform immediate check
+            if (!string.IsNullOrEmpty(_state.CurrentIP) && _state.CurrentIP != _state.PinnedIP)
+            {
+                KillProtectedApps("Initial start mismatch");
+            }
+        }
+
+        private static void StopGuard()
+        {
+            _state.IsRunning = false;
+            UpdateGuardStatus();
+            UpdateCrabState();
+            Log("Guard stopped by user.", "GUARD");
         }
 
         private static void LaunchClaude()
         {
-            string proc = _config.ProcessName;
+            if (string.IsNullOrEmpty(_state.PinnedIP) || string.IsNullOrEmpty(_state.CurrentIP) || _state.CurrentIP != _state.PinnedIP)
+            {
+                MessageBox.Show(GetText("MsgMismatch"), "ClawGuard", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!_state.IsRunning)
+            {
+                StartGuard();
+            }
+
             try
             {
-                Process.Start(proc);
-                Log(string.Format("Launched process: {0}", proc), "LAUNCH");
+                // Try launching Claude desktop app
+                Process.Start("explorer.exe", @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude");
+                Log("Launched Claude desktop app.", "APP");
             }
             catch (Exception ex)
             {
-                Log(string.Format("Failed to launch {0}: {1}", proc, ex.Message), "ERROR");
-                MessageBox.Show(string.Format("Could not launch {0}: {1}", proc, ex.Message), "ClawGuard", MessageBoxButton.OK, MessageBoxImage.Error);
+                try
+                {
+                    Process.Start("claude");
+                    Log("Launched Claude via PATH.", "APP");
+                }
+                catch
+                {
+                    Log("Failed to launch Claude: " + ex.Message, "ERROR");
+                }
             }
         }
 
-        private static void ToggleLanguage()
-        {
-            _config.Language = _config.Language == "RU" ? "EN" : "RU";
-            _config.Save();
-            ApplyLanguage();
-            UpdateGuardStatus();
-            UpdateCrabState();
-        }
+        #endregion
 
-        private static void ApplyLanguage()
-        {
-            string lang = _config.Language;
-            _txtLangBtn.Text = lang;
-            _lblPublicIP.Text = I18n.T(lang, "PublicIP");
-            _lblCountry.Text = I18n.T(lang, "Country");
-            _lblISP.Text = I18n.T(lang, "ISP");
-            _lblPinnedIP.Text = I18n.T(lang, "PinnedIP");
-            _btnPin.Content = I18n.T(lang, "PinBtn");
-            _btnLaunch.Content = I18n.T(lang, "LaunchBtn");
-            _btnToggleGuard.Content = I18n.T(lang, "StartGuard");
-        }
+        #region Drawer & Settings
 
-        private static void OpenDrawer(bool isConfig)
+        private static void OpenDrawer(string mode)
         {
-            _drawerPanel.Visibility = Visibility.Visible;
-            _txtDrawerTitle.Text = I18n.T(_config.Language, isConfig ? "CfgTitle" : "LogTitle");
-            _viewConfig.Visibility = isConfig ? Visibility.Visible : Visibility.Collapsed;
-            _viewLog.Visibility = isConfig ? Visibility.Collapsed : Visibility.Visible;
-
-            if (isConfig)
+            _currentDrawerMode = mode;
+            if (mode == "config")
             {
+                _txtDrawerIcon.Text = "⚙";
+                _txtDrawerTitle.Text = GetText("CfgTitle");
+                _viewConfig.Visibility = Visibility.Visible;
+                _viewLog.Visibility = Visibility.Collapsed;
+
                 _inPinnedIP.Text = _config.PinnedIP ?? "";
-                _inProcess.Text = _config.ProcessName ?? "Claude.exe";
+                _inProcess.Text = _config.ProcessName ?? "Claude";
                 _inInterval.Text = _config.CheckInterval.ToString();
                 _chkAutoExit.IsChecked = _config.AutoExitWithApp;
-                _chkTray.IsChecked = _config.TrayNotified;
+                _chkTray.IsChecked = _config.NotifyOnTray;
+            }
+            else
+            {
+                _txtDrawerIcon.Text = "📋";
+                _txtDrawerTitle.Text = GetText("LogTitle");
+                _viewConfig.Visibility = Visibility.Collapsed;
+                _viewLog.Visibility = Visibility.Visible;
+                _txtLogBody.Text = string.Join(Environment.NewLine, _logEntries.ToArray());
+                _txtLogBody.ScrollToEnd();
             }
 
-            _drawerPanel.Margin = new Thickness(0);
-            _drawerPanel.Visibility = Visibility.Visible;
+            _sideDrawer.Visibility = Visibility.Visible;
+            _drawerOverlay.Visibility = Visibility.Visible;
         }
 
         private static void CloseDrawer()
         {
-            _drawerPanel.Visibility = Visibility.Collapsed;
-            _drawerPanel.Margin = new Thickness(0, 0, -330, 0);
+            _sideDrawer.Visibility = Visibility.Collapsed;
+            _drawerOverlay.Visibility = Visibility.Collapsed;
+            _currentDrawerMode = null;
         }
 
-        private static void SaveDrawerConfig()
+        private static void SaveConfigFromDrawer()
         {
-            _config.PinnedIP = string.IsNullOrEmpty(_inPinnedIP.Text.Trim()) ? null : _inPinnedIP.Text.Trim();
-            _config.ProcessName = string.IsNullOrEmpty(_inProcess.Text.Trim()) ? "Claude.exe" : _inProcess.Text.Trim();
+            string newPinned = _inPinnedIP.Text.Trim();
+            _config.PinnedIP = string.IsNullOrEmpty(newPinned) ? null : newPinned;
+            _state.PinnedIP = _config.PinnedIP;
+
+            string newProc = _inProcess.Text.Trim();
+            if (!string.IsNullOrEmpty(newProc)) _config.ProcessName = newProc;
+
             int ival;
-            if (int.TryParse(_inInterval.Text, out ival) && ival >= 1) _config.CheckInterval = ival;
-            _config.AutoExitWithApp = _chkAutoExit.IsChecked == true;
-            _config.TrayNotified = _chkTray.IsChecked == true;
+            if (int.TryParse(_inInterval.Text.Trim(), out ival) && ival > 0) _config.CheckInterval = ival;
+
+            _config.AutoExitWithApp = (_chkAutoExit.IsChecked == true);
+            _config.NotifyOnTray = (_chkTray.IsChecked == true);
             _config.Save();
-            Log("Configuration updated from settings drawer.", "CONFIG");
+
+            _txtPinnedIP.Text = _state.PinnedIP ?? GetText("NotSet");
+            _txtPinnedIP.Foreground = (Brush)new BrushConverter().ConvertFrom(!string.IsNullOrEmpty(_state.PinnedIP) ? "#2cb67d" : "#e05050");
+            _btnPin.Content = string.IsNullOrEmpty(_state.PinnedIP) ? GetText("PinBtn") : GetText("PinUpdate");
+
+            UpdateStatusIndicator();
             UpdateGuardStatus();
+            UpdateCrabState();
             CloseDrawer();
+            Log("Settings saved successfully.", "CONFIG");
         }
 
-        private static void AttachTray()
-        {
-            _notifyIcon = new Forms.NotifyIcon
-            {
-                Text = "ClawGuard — Fail-Closed Kill Switch",
-                Visible = true
-            };
+        #endregion
 
+        #region System Tray & Exit
+
+        private static void SetupTray()
+        {
+            _notifyIcon = new Forms.NotifyIcon();
             try
             {
                 string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ClawGuard.ico");
                 if (File.Exists(icoPath))
-                {
                     _notifyIcon.Icon = new Icon(icoPath);
-                }
                 else
-                {
                     _notifyIcon.Icon = SystemIcons.Shield;
-                }
             }
             catch
             {
                 _notifyIcon.Icon = SystemIcons.Shield;
             }
 
-            _notifyIcon.DoubleClick += (s, e) =>
+            _notifyIcon.Text = "ClawGuard";
+            _notifyIcon.Visible = true;
+
+            var menu = new Forms.ContextMenu();
+            var itemShow = new Forms.MenuItem(GetText("TrayShow"), (s, e) => RestoreWindow());
+            var itemQuit = new Forms.MenuItem(GetText("TrayQuit"), (s, e) => ExitApp());
+            menu.MenuItems.Add(itemShow);
+            menu.MenuItems.Add(itemQuit);
+            _notifyIcon.ContextMenu = menu;
+
+            _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
+            _notifyIcon.Click += (s, e) =>
             {
-                _window.Show();
-                _window.WindowState = WindowState.Normal;
-                _window.Activate();
+                var me = e as Forms.MouseEventArgs;
+                if (me != null && me.Button == Forms.MouseButtons.Left) RestoreWindow();
             };
+        }
 
-            var cm = new Forms.ContextMenu();
-            cm.MenuItems.Add(I18n.T(_config.Language, "TrayShow"), (s, e) =>
+        private static void RestoreWindow()
+        {
+            if (_window != null)
             {
                 _window.Show();
                 _window.WindowState = WindowState.Normal;
                 _window.Activate();
-            });
-            cm.MenuItems.Add(I18n.T(_config.Language, "TrayLaunch"), (s, e) => LaunchClaude());
-            cm.MenuItems.Add(I18n.T(_config.Language, "TrayPin"), (s, e) => PinCurrentIP());
-            cm.MenuItems.Add("-");
-            cm.MenuItems.Add(I18n.T(_config.Language, "TrayQuit"), (s, e) => ExitApp());
-
-            _notifyIcon.ContextMenu = cm;
+            }
         }
 
         private static void ExitApp()
         {
+            _quitting = true;
+            _mainTimer.Stop();
+            _crabTimer.Stop();
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = false;
                 _notifyIcon.Dispose();
             }
-            Environment.Exit(0);
+            if (_singleInstanceMutex != null)
+            {
+                try { _singleInstanceMutex.ReleaseMutex(); } catch { }
+            }
+            Application.Current.Shutdown();
         }
+
+        #endregion
     }
 }
-

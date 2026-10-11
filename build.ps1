@@ -1,7 +1,7 @@
-# build.ps1 — ClawGuard Automated Build Script
+# build.ps1 — ClawGuard Pure Native C# Automated Build Script
 [CmdletBinding()]
 param(
-    [string]$Version = '2.5.0.0',
+    [string]$Version = '2.5.1.0',
     [switch]$SkipZip
 )
 
@@ -9,27 +9,25 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Building ClawGuard v$Version" -ForegroundColor Cyan
+Write-Host "  Building ClawGuard v$Version (Native C#)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
-# 1. Verify or import PS2EXE module
-$ps2exeLoaded = $false
-$localModule = 'C:\Users\gfrov\AppData\Local\Temp\ps2exe\PS2EXE-master\Module\ps2exe.psm1'
-if (Test-Path -LiteralPath $localModule) {
-    Import-Module $localModule -Force
-    $ps2exeLoaded = $true
-} elseif (Get-Module -ListAvailable -Name ps2exe) {
-    Import-Module ps2exe -Force
-    $ps2exeLoaded = $true
-} else {
-    Write-Host "Installing PS2EXE module..." -ForegroundColor Yellow
-    Install-Module ps2exe -Scope CurrentUser -Force -SkipPublisherCheck
-    Import-Module ps2exe -Force
-    $ps2exeLoaded = $true
+# 1. Locate Native .NET Framework C# Compiler
+$frameworkDir = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319"
+if (-not (Test-Path -LiteralPath $frameworkDir)) {
+    $frameworkDir = "C:\Windows\Microsoft.NET\Framework\v4.0.30319"
+}
+$csc = Join-Path $frameworkDir 'csc.exe'
+$wpfDir = Join-Path $frameworkDir 'WPF'
+
+if (-not (Test-Path -LiteralPath $csc)) {
+    throw "Microsoft .NET Framework 4.8 C# Compiler (csc.exe) not found at: $csc"
 }
 
+Write-Host "Compiler: $csc" -ForegroundColor DarkGray
+
 # 2. Paths
-$src = Join-Path $repoRoot 'ClawGuardUI.ps1'
+$src = Join-Path $repoRoot 'src\Program.cs'
 $ico = Join-Path $repoRoot 'ClawGuard.ico'
 $distDir = Join-Path $repoRoot 'dist'
 if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir -Force | Out-Null }
@@ -43,17 +41,44 @@ Get-Process -Name 'ClawGuard*' -ErrorAction SilentlyContinue | ForEach-Object {
 }
 Start-Sleep -Milliseconds 500
 
+$refs = @(
+    'PresentationCore.dll',
+    'PresentationFramework.dll',
+    'WindowsBase.dll',
+    'System.Xaml.dll',
+    'System.Drawing.dll',
+    'System.Windows.Forms.dll',
+    'System.dll',
+    'System.Core.dll'
+) -join ','
+
 # 3. Compile Standard Edition
 Write-Host "`n[1/3] Compiling ClawGuard.exe..." -ForegroundColor Green
-Invoke-PS2EXE -InputFile $src -OutputFile $exeTarget `
-    -IconFile $ico -NoConsole -STA -Title 'ClawGuard' -Description 'ClawGuard Fail-Closed VPN Kill Switch for Claude' `
-    -Product 'ClawGuard' -Company 'ClawGuard' -Version $Version -Copyright 'Copyright (c) 2026 Gafarov Maxim' | Out-Null
+$cmdArgs = @(
+    '/nologo',
+    '/target:winexe',
+    "/win32icon:$ico",
+    "/lib:$wpfDir",
+    "/out:$exeTarget",
+    "/r:$refs",
+    $src
+)
+& $csc $cmdArgs
+if ($LASTEXITCODE -ne 0) { throw "Compilation of ClawGuard.exe failed with exit code $LASTEXITCODE" }
 
 # 4. Compile Portable Edition
 Write-Host "[2/3] Compiling ClawGuardPortable.exe..." -ForegroundColor Green
-Invoke-PS2EXE -InputFile $src -OutputFile $portableTarget `
-    -IconFile $ico -NoConsole -STA -Title 'ClawGuard Portable' -Description 'ClawGuard Portable Fail-Closed VPN Kill Switch' `
-    -Product 'ClawGuard' -Company 'ClawGuard' -Version $Version -Copyright 'Copyright (c) 2026 Gafarov Maxim' | Out-Null
+$cmdArgsPortable = @(
+    '/nologo',
+    '/target:winexe',
+    "/win32icon:$ico",
+    "/lib:$wpfDir",
+    "/out:$portableTarget",
+    "/r:$refs",
+    $src
+)
+& $csc $cmdArgsPortable
+if ($LASTEXITCODE -ne 0) { throw "Compilation of ClawGuardPortable.exe failed with exit code $LASTEXITCODE" }
 
 # Mirror to root for local execution
 Copy-Item -LiteralPath $exeTarget -Destination (Join-Path $repoRoot 'ClawGuard.exe') -Force
@@ -63,8 +88,11 @@ Copy-Item -LiteralPath $portableTarget -Destination (Join-Path $repoRoot 'ClawGu
 if (-not $SkipZip) {
     Write-Host "[3/3] Generating release packages & SHA-256 sums..." -ForegroundColor Green
     
-    $zipMain = Join-Path $distDir "ClawGuard-v2.5.0-win-x64.zip"
-    $zipPortable = Join-Path $distDir "ClawGuardPortable-v2.5.0-win-x64.zip"
+    $cleanVer = $Version.TrimEnd('.0')
+    if ($cleanVer.Split('.').Count -eq 2) { $cleanVer = "$cleanVer.0" }
+    
+    $zipMain = Join-Path $distDir "ClawGuard-v$cleanVer-win-x64.zip"
+    $zipPortable = Join-Path $distDir "ClawGuardPortable-v$cleanVer-win-x64.zip"
     
     if (Test-Path $zipMain) { Remove-Item $zipMain -Force }
     if (Test-Path $zipPortable) { Remove-Item $zipPortable -Force }

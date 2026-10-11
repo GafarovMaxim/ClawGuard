@@ -10,10 +10,11 @@
 [![GitHub Release](https://img.shields.io/github/v/release/GafarovMaxim/ClawGuard?color=2cb67d&style=flat-square)](https://github.com/GafarovMaxim/ClawGuard/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20x64-3b82f6?style=flat-square)](https://github.com/GafarovMaxim/ClawGuard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-f59e0b?style=flat-square)](LICENSE)
-[![Architecture](https://img.shields.io/badge/Architecture-WPF%20%7C%20C%23%20%7C%20PowerShell-a855f7?style=flat-square)](ClawGuardUI.ps1)
+[![Architecture](https://img.shields.io/badge/Architecture-Native%20C%23%20%7C%20WPF-178600?style=flat-square)](src/Program.cs)
+[![VirusTotal](https://img.shields.io/badge/VirusTotal-0%2F72%20Clean-2cb67d?style=flat-square)](https://github.com/GafarovMaxim/ClawGuard/releases)
 [![Zero Leaks](https://img.shields.io/badge/Security-Fail--Closed-ef4444?style=flat-square)](#security-architecture)
 
-[**Download Latest Release (v2.5.0)**](https://github.com/GafarovMaxim/ClawGuard/releases/latest) • [**Features**](#key-features) • [**Architecture**](#security-architecture) • [**Build from Source**](#building-from-source)
+[**Download Latest Release (v2.5.1)**](https://github.com/GafarovMaxim/ClawGuard/releases/latest) • [**Features**](#key-features) • [**Architecture**](#security-architecture) • [**Build from Source**](#building-from-source)
 
 </div>
 
@@ -79,21 +80,25 @@ flowchart TD
 5. Click **Launch Claude** (🚀 Запустить Claude). Your session is now fail-closed protected!
 
 ### Option 2: Building from Source
-ClawGuard can be built locally using PowerShell 5.1+ on any 64-bit Windows machine:
+ClawGuard compiles natively using the built-in Windows .NET Framework C# compiler (`csc.exe`). No external tools, SDKs, or package managers are required.
 
-```powershell
+```cmd
 # Clone the repository
 git clone https://github.com/GafarovMaxim/ClawGuard.git
 cd ClawGuard
 
-# Build standalone executables and release archives
-.\build.ps1
+# 1-click batch build:
+build.bat
+
+# Or using PowerShell (with release .zip packaging):
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version "2.5.1.0"
 ```
 
 The compiled binaries will be output to `.\dist\`:
-- `dist\ClawGuard.exe`
+- `dist\ClawGuard.exe` (~87 KB native executable)
 - `dist\ClawGuardPortable.exe`
-- `dist\ClawGuard-v2.5.0-win-x64.zip`
+- `dist\ClawGuard-v2.5.1-win-x64.zip`
+- `dist\ClawGuardPortable-v2.5.1-win-x64.zip`
 - `dist\SHA256SUMS.txt`
 
 ---

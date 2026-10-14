@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2026-10-14
+
+### Added
+- **Dynamic Claude Companion Toggle:** When Claude Desktop is active/running, the launch button dynamically transforms into an active termination button (`🛑  Закрыть Claude` / `🛑  Close Claude`) with crimson alert styling, allowing instant 1-click termination. When inactive, it cleanly reverts to `🚀  Запустить Claude` / `🚀  Launch Claude`.
+- **Strict Guard Start Validation:** Disabled the `[ ▶ Запустить ]` (Start Guard) button when current public IP is offline, null, syntactically invalid IPv4, or mismatched against the pinned IP, preventing invalid guard states.
+- **Repository Rulesets & Integrity Tooling:** Added `.gitattributes` for cross-platform EOL normalization and binary protection, `.editorconfig` for consistent formatting, and `.github/dependabot.yml` for automated security scanning.
+
+### Changed
+- **GPL-3.0 Copyleft Licensing:** Migrated license from MIT to GNU General Public License v3.0 (GPL-3.0) across repository documentation, license files, and assembly metadata to safeguard distribution rights.
+- **Crab Pixel Rendering & Mesh Texture Removal:** Replaced composite multi-Rectangle geometry rendering with a single direct `BitmapSource` using `NearestNeighbor` scaling and aliased edge mode, completely eliminating fractional subpixel grid lines and mesh artifacts across the crab sprite.
+
 ## [2.5.1] - 2026-10-11
 
 ### Added

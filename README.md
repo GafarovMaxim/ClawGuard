@@ -9,12 +9,12 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/GafarovMaxim/ClawGuard?color=2cb67d&style=flat-square)](https://github.com/GafarovMaxim/ClawGuard/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20x64-3b82f6?style=flat-square)](https://github.com/GafarovMaxim/ClawGuard)
-[![License: MIT](https://img.shields.io/badge/License-MIT-f59e0b?style=flat-square)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square)](LICENSE)
 [![Architecture](https://img.shields.io/badge/Architecture-Native%20C%23%20%7C%20WPF-178600?style=flat-square)](src/Program.cs)
 [![VirusTotal](https://img.shields.io/badge/VirusTotal-0%2F72%20Clean-2cb67d?style=flat-square)](https://github.com/GafarovMaxim/ClawGuard/releases)
 [![Zero Leaks](https://img.shields.io/badge/Security-Fail--Closed-ef4444?style=flat-square)](#security-architecture)
 
-[**Download Latest Release (v2.5.1)**](https://github.com/GafarovMaxim/ClawGuard/releases/latest) • [**Features**](#key-features) • [**Architecture**](#security-architecture) • [**Build from Source**](#building-from-source)
+[**Download Latest Release (v2.5.2)**](https://github.com/GafarovMaxim/ClawGuard/releases/latest) • [**Features**](#key-features) • [**Architecture**](#security-architecture) • [**Build from Source**](#building-from-source)
 
 </div>
 
@@ -97,8 +97,8 @@ build.bat pack
 The compiled binaries will be output to `.\dist\`:
 - `dist\ClawGuard.exe` (~87 KB native executable)
 - `dist\ClawGuardPortable.exe`
-- `dist\ClawGuard-v2.5.1-win-x64.zip`
-- `dist\ClawGuardPortable-v2.5.1-win-x64.zip`
+- `dist\ClawGuard-v2.5.2-win-x64.zip`
+- `dist\ClawGuardPortable-v2.5.2-win-x64.zip`
 - `dist\SHA256SUMS.txt`
 
 ---
@@ -131,7 +131,7 @@ Contributions, bug reports, and suggestions are welcome! Please check out [CONTR
 ---
 
 ## 📄 License
-
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+ 
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** — see the [LICENSE](LICENSE) file for details.
 
 Developed with care by **[Maxim Gafarov](https://github.com/GafarovMaxim)**.

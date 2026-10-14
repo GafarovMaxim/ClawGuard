@@ -1,0 +1,21 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Code and scripts
+*.cs text eol=crlf
+*.bat text eol=crlf
+*.json text eol=crlf
+*.manifest text eol=crlf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.editorconfig text eol=lf
+.gitignore text eol=lf
+LICENSE text eol=lf
+
+# Binary files
+*.png binary
+*.ico binary
+*.zip binary
+*.exe binary
+*.dll binary

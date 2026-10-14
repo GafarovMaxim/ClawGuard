@@ -30,9 +30,9 @@ using Path = System.IO.Path;
 [assembly: AssemblyDescription("ClawGuard Network Security Companion for Claude")]
 [assembly: AssemblyProduct("ClawGuard")]
 [assembly: AssemblyCompany("ClawGuard")]
-[assembly: AssemblyCopyright("Copyright (c) 2026 Gafarov Maxim")]
-[assembly: AssemblyVersion("2.5.1.0")]
-[assembly: AssemblyFileVersion("2.5.1.0")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 Gafarov Maxim. Licensed under GPL-3.0")]
+[assembly: AssemblyVersion("2.5.2.0")]
+[assembly: AssemblyFileVersion("2.5.2.0")]
 
 namespace ClawGuard
 {
@@ -416,7 +416,8 @@ namespace ClawGuard
         private static Button _btnCopyLog;
         private static Button _btnClearLog;
 
-        private static Dictionary<string, Canvas> _crabFrames;
+        private static Dictionary<string, BitmapSource> _crabBitmaps;
+        private static Image _crabImage;
         private static DropShadowEffect _claudeRedGlow;
         private static DispatcherTimer _crabTimer;
         private static DispatcherTimer _mainTimer;
@@ -438,6 +439,7 @@ namespace ClawGuard
             { "StartBtn", "▶  Start Guard" },
             { "StopBtn", "■  Stop Guard" },
             { "LaunchClaude", "🚀  Launch Claude" },
+            { "CloseClaude", "🛑  Close Claude" },
             { "Protecting", "Protecting: {0}" },
             { "NoPIN", "No PIN" },
             { "Offline", "Offline" },
@@ -484,6 +486,7 @@ namespace ClawGuard
             { "StartBtn", "▶  Запустить" },
             { "StopBtn", "■  Остановить" },
             { "LaunchClaude", "🚀  Запустить Claude" },
+            { "CloseClaude", "🛑  Закрыть Claude" },
             { "Protecting", "Защищает: {0}" },
             { "NoPIN", "Нет IP" },
             { "Offline", "Офлайн" },
@@ -711,7 +714,11 @@ namespace ClawGuard
             _btnPin.Click += (s, e) => PinCurrentIP();
             _btnStart.Click += (s, e) => StartGuard();
             _btnStop.Click += (s, e) => StopGuard();
-            _btnClaude.Click += (s, e) => LaunchClaude();
+            _btnClaude.Click += (s, e) =>
+            {
+                if (_isClaudeRunning) CloseClaudeApp();
+                else LaunchClaude();
+            };
 
             // Timers
             _crabTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(45) };
@@ -851,35 +858,23 @@ namespace ClawGuard
         private static void BuildPixelCrab()
         {
             double scale = 2.4;
-            BrushConverter bc = new BrushConverter();
-            Brush cCrab = (Brush)bc.ConvertFrom("#D97757");
-            Brush cEyeCutout = (Brush)bc.ConvertFrom("#0f0f16");
-            Brush cRed = (Brush)bc.ConvertFrom("#E05050");
-            Brush cWhite = (Brush)bc.ConvertFrom("#FFFFFF");
+            uint cCrab = 0xFFD97757;
+            uint cEyeCutout = 0xFF0F0F16;
+            uint cRed = 0xFFE05050;
+            uint cWhite = 0xFFFFFFFF;
 
-            Func<string, Canvas> makeFrame = (state) =>
+            Func<string, BitmapSource> makeBitmap = (state) =>
             {
-                Canvas c = new Canvas
-                {
-                    Width = 14 * scale,
-                    Height = 11 * scale,
-                    ClipToBounds = false
-                };
-
-                Brush b = (state == "Dead") ? cRed : cCrab;
+                uint[] pixels = new uint[14 * 11];
+                uint b = (state == "Dead") ? cRed : cCrab;
                 int yBob = (state == "AwakeB") ? 1 : 0;
 
-                Action<int, int, Brush> px = (x, y, brush) =>
+                Action<int, int, uint> px = (x, y, col) =>
                 {
-                    var r = new Rectangle
+                    if (x >= 0 && x < 14 && y >= 0 && y < 11)
                     {
-                        Width = scale,
-                        Height = scale,
-                        Fill = brush
-                    };
-                    Canvas.SetLeft(r, x * scale);
-                    Canvas.SetTop(r, y * scale);
-                    c.Children.Add(r);
+                        pixels[y * 14 + x] = col;
+                    }
                 };
 
                 // Horns/Pincers
@@ -955,37 +950,44 @@ namespace ClawGuard
                     px(x, 9 + yBob, b);
                 }
 
-                return c;
+                var bmp = BitmapSource.Create(14, 11, 96, 96, PixelFormats.Bgra32, null, pixels, 14 * 4);
+                bmp.Freeze();
+                return bmp;
             };
 
-            _crabFrames = new Dictionary<string, Canvas>
+            _crabBitmaps = new Dictionary<string, BitmapSource>
             {
-                { "Sleep", makeFrame("Sleep") },
-                { "AwakeA", makeFrame("AwakeA") },
-                { "AwakeB", makeFrame("AwakeB") },
-                { "AwakeLeft", makeFrame("AwakeLeft") },
-                { "AwakeRight", makeFrame("AwakeRight") },
-                { "Walk1", makeFrame("Walk1") },
-                { "Walk2", makeFrame("Walk2") },
-                { "Walk3", makeFrame("Walk3") },
-                { "Walk4", makeFrame("Walk4") },
-                { "Dead", makeFrame("Dead") }
+                { "Sleep", makeBitmap("Sleep") },
+                { "AwakeA", makeBitmap("AwakeA") },
+                { "AwakeB", makeBitmap("AwakeB") },
+                { "AwakeLeft", makeBitmap("AwakeLeft") },
+                { "AwakeRight", makeBitmap("AwakeRight") },
+                { "Walk1", makeBitmap("Walk1") },
+                { "Walk2", makeBitmap("Walk2") },
+                { "Walk3", makeBitmap("Walk3") },
+                { "Walk4", makeBitmap("Walk4") },
+                { "Dead", makeBitmap("Dead") }
             };
 
-            foreach (var kvp in _crabFrames)
+            _crabHost.Children.Clear();
+            _crabImage = new Image
             {
-                kvp.Value.Visibility = Visibility.Collapsed;
-                _crabHost.Children.Add(kvp.Value);
-            }
-            _crabFrames["Sleep"].Visibility = Visibility.Visible;
+                Width = 14 * scale,
+                Height = 11 * scale,
+                Stretch = Stretch.Fill,
+                SnapsToDevicePixels = true
+            };
+            RenderOptions.SetBitmapScalingMode(_crabImage, BitmapScalingMode.NearestNeighbor);
+            RenderOptions.SetEdgeMode(_crabImage, EdgeMode.Aliased);
+            _crabHost.Children.Add(_crabImage);
+            SetActiveCrabFrame("Sleep");
         }
 
         private static void SetActiveCrabFrame(string frameKey)
         {
-            if (_crabFrames == null) return;
-            foreach (var kvp in _crabFrames)
+            if (_crabBitmaps != null && _crabImage != null && _crabBitmaps.ContainsKey(frameKey))
             {
-                kvp.Value.Visibility = (kvp.Key == frameKey) ? Visibility.Visible : Visibility.Collapsed;
+                _crabImage.Source = _crabBitmaps[frameKey];
             }
         }
 
@@ -1004,7 +1006,7 @@ namespace ClawGuard
             _btnPin.Content = string.IsNullOrEmpty(_state.PinnedIP) ? GetText("PinBtn") : GetText("PinUpdate");
             _btnStart.Content = GetText("StartBtn");
             _btnStop.Content = GetText("StopBtn");
-            _btnClaude.Content = GetText("LaunchClaude");
+            _btnClaude.Content = _isClaudeRunning ? GetText("CloseClaude") : GetText("LaunchClaude");
 
             _txtLangBtn.Text = string.Equals(_config.Language, "RU", StringComparison.OrdinalIgnoreCase) ? "RU" : "EN";
 
@@ -1220,6 +1222,14 @@ namespace ClawGuard
         private static void UpdateGuardStatus()
         {
             var bc = new BrushConverter();
+
+            // Task 3: IP is valid only when non-empty, matching pinned IP, and syntactically valid IPv4
+            IPAddress dummyIp;
+            bool isIpValid = !string.IsNullOrEmpty(_state.CurrentIP) &&
+                             !string.IsNullOrEmpty(_state.PinnedIP) &&
+                             string.Equals(_state.CurrentIP, _state.PinnedIP, StringComparison.OrdinalIgnoreCase) &&
+                             IPAddress.TryParse(_state.CurrentIP, out dummyIp);
+
             if (_state.IsRunning)
             {
                 _txtGuardDot.Text = "●";
@@ -1236,14 +1246,22 @@ namespace ClawGuard
                 _txtGuardStatus.Text = GetText("GuardStopped");
                 _txtProtecting.Text = "";
                 _btnStop.IsEnabled = false;
-                _btnStart.IsEnabled = !string.IsNullOrEmpty(_state.PinnedIP);
+                _btnStart.IsEnabled = isIpValid; // Task 3: disabled when IP is invalid/mismatched/empty
             }
 
-            _btnClaude.IsEnabled = (
-                !string.IsNullOrEmpty(_state.PinnedIP) &&
-                !string.IsNullOrEmpty(_state.CurrentIP) &&
-                _state.CurrentIP == _state.PinnedIP
-            );
+            // Task 2: When Claude Desktop is active, replace "Launch Claude" with "Close Claude"
+            if (_isClaudeRunning)
+            {
+                _btnClaude.Content = GetText("CloseClaude");
+                _btnClaude.Background = (Brush)bc.ConvertFrom("#9b204e");
+                _btnClaude.IsEnabled = true;
+            }
+            else
+            {
+                _btnClaude.Content = GetText("LaunchClaude");
+                _btnClaude.Background = (Brush)bc.ConvertFrom("#7a54ec");
+                _btnClaude.IsEnabled = isIpValid;
+            }
         }
 
         private static void UpdateCrabState()
@@ -1335,6 +1353,12 @@ namespace ClawGuard
 
             bool prev = _isClaudeRunning;
             _isClaudeRunning = running;
+
+            if (prev != running)
+            {
+                UpdateGuardStatus();
+                UpdateCrabState();
+            }
 
             if (prev && !running && _config.AutoExitWithApp && _state.IsRunning)
             {
@@ -1450,6 +1474,31 @@ namespace ClawGuard
                     Log("Failed to launch Claude: " + ex.Message, "ERROR");
                 }
             }
+        }
+
+        private static void CloseClaudeApp()
+        {
+            string procName = Path.GetFileNameWithoutExtension(_config.ProcessName ?? "Claude");
+            try
+            {
+                var procs = Process.GetProcessesByName(procName);
+                if (procs != null && procs.Length > 0)
+                {
+                    foreach (var p in procs)
+                    {
+                        try { p.CloseMainWindow(); } catch { }
+                        try { p.Kill(); } catch { }
+                    }
+                    Log(string.Format("Closed {0} processes by user request.", procs.Length), "APP");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Error closing Claude: " + ex.Message, "ERROR");
+            }
+            CheckClaudeProcess();
+            UpdateGuardStatus();
+            UpdateCrabState();
         }
 
         #endregion

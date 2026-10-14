@@ -44,7 +44,7 @@ goto end
 
 :do_pack
 echo [Packaging Release Archives and SHA-256 Checksums...]
-set "VER=2.5.1"
+set "VER=2.5.2"
 if not "%2"=="" set "VER=%2"
 powershell -NoProfile -Command ^
     "Compress-Archive -Path dist\ClawGuard.exe, ClawGuard.ico, LICENSE -DestinationPath dist\ClawGuard-v%VER%-win-x64.zip -Force;" ^
